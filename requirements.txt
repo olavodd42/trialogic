@@ -1,0 +1,6 @@
+psycopg2
+pandas
+sqlalchemy
+python-dotenv
+langchain
+langchain-community
