@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import polars as pl
 
-def load_discharge_dataset(file_path: str | None = None) -> pl.DataFrame:
+def load_discharge_dataset(file_path: str | None = None, n: int | None = None) -> pl.DataFrame:
     """
     Carrega o dataset de discharge.csv usando Polars para alta performance.
     Retorna um DataFrame do Polars.
@@ -21,7 +21,10 @@ def load_discharge_dataset(file_path: str | None = None) -> pl.DataFrame:
     
     try:
         # Polars é otimizado para leitura rápida de arquivos grandes
-        df = pl.read_csv(file_path)
+        if n is not None:
+            df = pl.read_csv(file_path, n_rows=n)
+        else:
+            df = pl.read_csv(file_path)
         print(f"Dataset carregado com sucesso! Dimensões: {df.shape}")
         return df
     except Exception as e:
