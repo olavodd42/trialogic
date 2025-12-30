@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, TypedDict, Annotated, Optional, Literal
+from typing import List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
 
 # --- Enums para Restrição de Output ---
@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 TypeAdmissionType = Literal['EMERGENCY', 'URGENT', 'ELECTIVE']
 TypeService = Literal['MEDICINE', 'SURGERY', 'ORTHOPEDICS', 'NEUROLOGY', 'PSYCHIATRY', 'OTHER']
 TypeAVPU = Literal['Alert', 'Voice', 'Pain', 'Unresponsive']
+TypeACVPU = Literal['Alert', 'Confusion', 'Voice', 'Pain', 'Unresponsive']
 TypeChange = Literal['NEW_START', 'DOSE_INCREASE', 'DOSE_DECREASE', 'STOPPED', 'UNCHANGED']
 
 # --- Schemas de Output ---
@@ -39,7 +40,12 @@ class VitalsSchema(BaseModel):
     pain: Optional[int] = Field(None, description="Pain score (0-10).")
     acuity: Optional[int] = Field(None, description="ESI Acuity Level (1-5) if stated or clearly inferable.")
     supplemental_oxygen: Optional[bool] = Field(None, description="True if on O2, False if Room Air.")
-    avpu: Optional[TypeAVPU] = Field(None, description="Level of consciousness.")
+    gcs: Optional[int] = Field(None, description="Escala de Coma de Glasgow (3-15)")
+    avpu: Optional[TypeAVPU] = Field(None, description="Level of consciousness following MEWS standard. Use 'Alert' only if fully oriented")
+    acvpu: Optional[TypeACVPU] = Field(
+        None, 
+        description="Level of consciousness following NEWS2 standard. Use 'Confusion' for new onset confusion, delirium, or disorientation. Use 'Alert' only if fully oriented."
+    )
 
     @field_validator("temperature")
     def check_temperature(cls, v):
@@ -88,7 +94,14 @@ class VitalsSchema(BaseModel):
         if v is not None and not (1 <= v <= 5):
             raise ValueError("acuity must be between 1 and 5")
         return v
-    
+
+class ScoreCapability(BaseModel):
+    score_name: str = Field(..., description="Name of the clinical score (e.g., 'MEWS', 'NEWS2').")
+    can_calculate: bool = Field(..., description="Indicates if sufficient data is present to calculate the score.")
+    missing_fields: List[str] = Field(default_factory=list, description="List of missing fields required for calculation.")
+    assumptions_made: List[str] = Field(default_factory=list, description="List of assumptions made during calculation, e.g., assuming 'Alert' for consciousness level.")
+
+
 class LabsSchema(BaseModel):
     """Key laboratory values. Only extract pertinent abnormalities or admission baselines."""
     potassium: Optional[float] = Field(None, description="K+ (mEq/L)")

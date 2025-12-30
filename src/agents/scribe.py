@@ -5,16 +5,13 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.schemas.scribe_output_schema import ScribeOutputSchema
 from src.schemas.input_schema import InputSchema
+from src.agents.agent_state import AgentState
 from dotenv import load_dotenv
 load_dotenv()
 
 # Configuração de Logs (Essencial para TCC e Debug)
 logger = logging.getLogger(__name__)
-class AgentState(TypedDict):
-    input: InputSchema              # O input bruto da triagem
-    extracted_data: Optional[ScribeOutputSchema] # O JSON validado (SinaisVitais)
-    validation_error: Optional[str]   # Mensagem de erro do Pydantic (se houver)
-    attempts: int
+
 
 # Carregamento do Modelo e Prompt (Escopo Global = Carrega 1 vez)
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
