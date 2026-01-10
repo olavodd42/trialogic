@@ -25,7 +25,13 @@ def Mathematician_node(state: AgentState) -> AgentState:
     # Recupera dados do Estado (Output do Scribe)
     data = state.get("extracted_data")
     if not data or not data.clinical or not data.clinical.vitals:
-        return {"error": "Dados vitais não encontrados no estado."}
+        return AgentState(
+            input=state["input"],
+            extracted_data=state.get("extracted_data"),
+            validation_error=state.get("validation_error"),
+            attempts=state.get("attempts", 0),
+            risk_score_report="Sem dados clínicos válidos para calcular scores."
+        )
     
     vitals = data.clinical.vitals
     
@@ -84,8 +90,10 @@ def Mathematician_node(state: AgentState) -> AgentState:
     final_score_report = "\n".join(tool_outputs)
     
     # Retornamos apenas o delta do estado que queremos atualizar
-    return {
-        "risk_score_report": final_score_report,
-        # Opcional: manter o histórico de mensagens se estiver usando memory
-        # "messages": [response] 
-    }
+    return AgentState(
+        input=state["input"],
+        extracted_data=state.get("extracted_data"),
+        validation_error=state.get("validation_error"),
+        attempts=state.get("attempts", 0),
+        risk_score_report=final_score_report
+    )

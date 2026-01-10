@@ -1,96 +1,9 @@
-from src.schemas.scribe_output_schema import VitalsSchema, ScoreCapability
-
-class VitalSignCalculator:
-    @staticmethod
-    def check_news_capability(vitals: VitalsSchema, score_name: str) -> ScoreCapability:
-        required = {
-            "resprate": vitals.resprate,
-            "heartrate": vitals.heartrate,
-            "sbp": vitals.sbp,
-            "temperature": vitals.temperature
-        }
-
-        if score_name == "NEWS:":
-            required["o2sat"] = vitals.o2sat
-            
-        missing = [k for k, v in required.items() if v is None]
-        assumptions = []
-
-        if not vitals.avpu and not vitals.gcs and score_name == "MEWS":
-            assumptions.append("Missing AVPU/GCS: Assumed 'Alert' (Score 0)")
-
-        if not vitals.acvpu and not vitals.gcs and score_name == "NEWS":
-            assumptions.append("Missing ACVPU/GCS: Assumed 'Alert' (Score 0)")
-
-        return ScoreCapability(
-            score_name=score_name,
-            can_calculate=(len(missing) == 0),
-            missing_fields=missing,
-            assumptions_made=assumptions
-        )
-
-
-@tool
-def calculate_score(vitals: VitalsSchema, score_name: str) -> int:
-    if score_name not in ["NEWS", "MEWS"]:
-        raise ValueError("Unsupported score name. Use 'NEWS' or 'MEWS'.")
-    
-    if score_name == "MEWS":
-        return calculate_MEWS_score(vitals)
-    else:
-        return calculate_NEWS_score(vitals)
-    
-def calculate_MEWS_score(vitals: VitalsSchema) -> int:
-    score = 0
-
-
-
-    return score
-
-def calculate_NEWS_score(vitals: VitalsSchema) -> int:
-    score = 0
-
-    if vitals["resprate"] < 9: score += 3
-    elif 9 <= vitals["resprate"] <= 11: score += 1
-    elif 12 <= vitals["resprate"] <= 20: score += 0
-    elif 21 <= vitals["resprate"] <= 24: score += 2
-    else: score += 3
-
-    if vitals["o2sat"] <= 91: score += 3
-    elif 92 <= vitals["o2sat"] <= 93: score += 2
-    elif 94 <= vitals["o2sat"] <= 95: score += 1
-    else: score += 0
-
-    if vitals["supplemental_oxygen"]: score += 2
-    else: score += 0
-
-    if vitals["sbp"] <= 90: score += 3
-    elif 91 <= vitals["sbp"] <= 100: score += 2
-    elif 101 <= vitals["sbp"] <= 110: score += 1
-    elif 111 <= vitals["sbp"] <= 219: score += 0
-    else: score += 3
-
-    if vitals["heartrate"] <= 40: score += 3
-    elif 41 <= vitals["heartrate"] <= 50: score += 1
-    elif 51 <= vitals["heartrate"] <= 90: score += 0
-    elif 91 <= vitals["heartrate"] <= 110: score += 1
-    elif 111 <= vitals["heartrate"] <= 130: score += 2
-    else: score += 3
-
-    if vitals["temperature"] <= 35.0: score += 3
-    elif 35.1 <= vitals["temperature"] <= 36.0: score += 1
-    elif 36.1 <= vitals["temperature"] <= 38.0: score += 0
-    elif 38.1 <= vitals["temperature"] <= 39.0: score += 1
-    else: score += 2
-
-    if vitals["acvpu"] == "Alert": score += 0
-    else: score += 3
-
-    return score
-
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool
+from src.schemas.scribe_output_schema import VitalsSchema
+from src.schemas.mathematician_schema import ScoreCapability
+
 
 # --- Schemas Auxiliares para Auditoria ---
 class ScoreBreakdown(BaseModel):

@@ -58,7 +58,8 @@ def scribe_node(state: AgentState) -> AgentState:
             "input": input_data,
             "extracted_data": structured_data.model_dump(),
             "validation_error": None,
-            "attempts": attempts + 1
+            "attempts": attempts + 1,
+            "risk_score_report": None  # Inicialmente None, será preenchido depois
         }
     
     except Exception as e:
@@ -68,7 +69,8 @@ def scribe_node(state: AgentState) -> AgentState:
             "input": input_data,
             "extracted_data": None,
             "validation_error": str(e),
-            "attempts": attempts + 1
+            "attempts": attempts + 1,
+            "risk_score_report": None
         }
     
 def validator(state: AgentState) -> str:
