@@ -11,7 +11,8 @@ class AgentState(TypedDict):
     validation_error: Optional[str]   # Mensagem de erro do Pydantic (se houver)
     attempts: int
     risk_score_report: Optional[str]  # Resultados dos scores de risco
-    search_query: str
-    context_category: str
-    context_text: str
+    search_query: Optional[str]
+    context_category: Optional[str]
+    context_text: Optional[str]
+    auditor_report: Optional[Any]     # Relatório final da auditoria (dict ou msg de erro)
     

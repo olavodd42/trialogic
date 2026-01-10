@@ -1,81 +1,121 @@
-import chromadb
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
-from typing import Dict, Any
+import json
+from typing import Dict, Any, cast
+from functools import lru_cache
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_chroma import Chroma
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import PydanticOutputParser
+
 from src.agents.agent_state import AgentState
-from src.retriever_data.load_and_preprocess import load_pdf
+from src.schemas.auditor_schema import AuditorEvaluation
 
-def query_transformation(state: AgentState) -> AgentState:
-    patient_schema = state["extracted_data"].model_dump_json()
-    score_report = state["risk_score_report"]
-    system_prompt = SystemMessage(content="""
-        You are a Clinical Knowledge Retrieval Specialist utilizing a Vector Database (RAG) to audit medical cases.
-        Your sole responsibility is to translate a structured 'Patient State' (JSON) into a precise, semantic search query suitable for retrieving clinical protocols (e.g., NICE, Sepsis-3, ACLS).
+# --- SETUP (Singleton Pattern to the Database) ---
+@lru_cache(maxsize=1)
+def get_vectorstore():
+    """Carrega o banco vetorial apenas uma vez em memória."""
+    return Chroma(
+        persist_directory="./chroma_db",
+        embedding_function=OpenAIEmbeddings()
+    )
 
-        ### Instructions:
-        1. ANALYZE the Patient State: Focus heavily on abnormal vital signs, high risk scores (NEWS/MEWS), and chief complaints.
-        2. ABSTRACTION: Do not just repeat numbers. Translate numbers into clinical terms (e.g., HR 130 -> 'Tachycardia', Temp 39 -> 'Fever/Pyrexia').
-        3. TARGET: Formulate a query that targets the *management guidelines* or *standard of care* for the identified condition.
-        4. PRIVACY: REMOVE any patient identifiers (Names, IDs). The query must be anonymous.
+# --- PROMPTS ---
+QUERY_GEN_SYSTEM = """
+You are a Clinical Knowledge Retrieval Specialist.
+Translate the patient state into a semantic search query for medical guidelines.
+Focus on abnormal vitals and risk scores.
+Output ONLY the query string.
+"""
 
-        ### Output Format:
-        Return ONLY the search query string. No explanations, no markdown, no quotes.
+AUDITOR_SYSTEM = """
+You are a Senior Clinical Auditor AI. 
+Your job is to compare the Patient State against the provided Official Medical Protocols.
 
-        ### Examples:
+CONTEXT (Official Guidelines):
+{context}
 
-        Input:
-        {
-        "chief_complaint": "chest pain radiating to left arm",
-        "vitals": {"hr": 110, "bp": "160/95", "spo2": 98},
-        "risk_score": "NEWS: 4"
-        }
-        Output:
-        Acute Coronary Syndrome chest pain management protocol
+PATIENT STATE:
+{patient_state}
 
-        Input:
-        {
-        "chief_complaint": "shortness of breath",
-        "vitals": {"hr": 125, "bp": "85/50", "temp": 39.2},
-        "risk_score": "NEWS: 11 (High Risk)"
-        }
-        Output:
-        Sepsis-3 guidelines hypotension tachycardia fever management
+INSTRUCTIONS:
+1. Verify if the patient's vitals and scores align with the protocol's severity criteria.
+2. Quote the specific line from the context that supports your finding.
+3. Determine compliance (Compliant/Non-Compliant).
+4. Suggest the next step based on the text.
+"""
 
-        Input:
-        {
-        "chief_complaint": "fall, hit head",
-        "vitals": {"gcs": 13, "bp": "130/80"},
-        "risk_score": "Trauma Score: Moderate"
-        }
-        Output:
-        Traumatic Brain Injury TBI adult triage guidelines head trauma
-    """)
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    user_prompt = HumanMessage(content=f"Collected data about the patient {patient_schema} and score report \"{score_report}\"")
-    search_query = str(llm.invoke([system_prompt, user_prompt]).content)
-    state["search_query"] = search_query
-    print(f"🔍 Generated Query: {search_query}")
+# --- NODE LOGIC ---
+def auditor_node(state: AgentState) -> dict | AgentState:
+    print("--- ⚖️ NODE: AUDITOR ---")
+
+    # 1. Recovery data from previous nodes
+    extracted_data = state.get("extracted_data")
+    risk_report = state.get("risk_score_report")
+
+    if not extracted_data:
+        return {"auditor_report": "Error: No data to audit."}
     
-    return state
+    # 2. Prepare serialized input
+    patient_json = extracted_data.model_dump_json()
+    full_patient_context = f"Data: {patient_json}. Risk Assessment: {risk_report}"
 
-def retriever(state: AgentState, vectorstore: chromadb.Collection) -> AgentState:
-    query = state["search_query"]
-    category_filter = state.get("context_category", None)
-    search_kwargs: Dict[str, Any] = {"k": 3}
+    # ----------------------------------------
+    # SUB-STEP A: QUERY TRANSFORMATION
+    # ----------------------------------------
+    llm_query = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    query_msg = [
+        SystemMessage(content=QUERY_GEN_SYSTEM),
+        HumanMessage(content=full_patient_context)
+    ]
+    search_query = llm_query.invoke(query_msg).content
+    print(f"🔍 Generated Query: {search_query}")
 
-    if category_filter:
-        search_kwargs["filter"] = {"category": category_filter}
+    # ----------------------------------------
+    # SUB-STEP B: RETRIEVAL (RAG)
+    # ----------------------------------------
+    vectorstore = get_vectorstore()
 
-    docs = vectorstore.similarity_search(query, **search_kwargs)
-    context_text = "\n\n".join([d.page_content for d in docs])
-    state["context_text"] = context_text
+    # Filter definition
+    retriever_kwargs: Dict[str, Any] = {"k": 3}
+    if state.get("context_category"):
+         retriever_kwargs["filter"] = {"context_category": state["context_category"]}
 
-    return state
+    docs = vectorstore.similarity_search(search_query, **retriever_kwargs)
 
-def synthesis_and_audit(state: AgentState) -> AgentState:
-    text = state.get("context_text", "")
-    system_prompt = SystemMessage(content="")
-    return state
+    retrieved_context = "\n\n".join([f"[Source: {d.metadata.get('source_type', 'Unknown')}]\n{d.page_content}" for d in docs])
 
-def auditor_node(state: AgentState) -> AgentState:
-    return state
+    if not docs:
+        retrieved_context = "No specific protocol found in the database."
+        print("⚠️ Warning: No documents retrieved.")
+
+    # ----------------------------------------
+    # SUB-STEP C: SYNTHESIS & STRUCTURED AUDIT
+    # ----------------------------------------
+    llm_auditor = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+    structured_llm = llm_auditor.with_structured_output(AuditorEvaluation)
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", AUDITOR_SYSTEM),
+        ("human", "Audit this case.")
+    ])
+    
+    chain = prompt | structured_llm
+
+    try:
+        evaluation = cast(AuditorEvaluation, chain.invoke({
+            "context": retrieved_context,
+            "patient_state": full_patient_context
+        }))
+        
+        print(f"📝 Veredito: {evaluation.compliance}")
+
+        return {
+            "search_query": search_query,
+            "context_text": retrieved_context,
+            "auditor_report": evaluation.model_dump() # Salva como dict
+        }
+    
+    except Exception as e:
+        print(f"❌ Error in synthesis: {e}")
+        return {"auditor_report": {"error": str(e)}}
