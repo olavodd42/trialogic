@@ -1,6 +1,6 @@
 
 from typing import List, Any, TypedDict, Optional
-from src.schemas.scribe_schema import ScribeOutputSchema
+from src.schemas.scribe_schema import ScribeSchema
 from src.schemas.input_schema import InputSchema
 
 
@@ -30,8 +30,9 @@ class AgentState(TypedDict, total=False):
     """
  
     input: Optional[InputSchema]              # O input bruto da triagem
-    extracted_data: Optional[ScribeOutputSchema] # O JSON validado (SinaisVitais)
-    validation_error: Optional[str]   # Mensagem de erro do Pydantic (se houver)
+    extracted_data: Optional[ScribeSchema] # O JSON validado (SinaisVitais)
+    validation_errors: List[Optional[str]]   # Mensagem de erro do Pydantic (se houver)
+    validation_messages: List[Any]
     attempts: int
     risk_score_report: Optional[str]  # Resultados dos scores de risco
     search_query: Optional[str]
@@ -41,3 +42,5 @@ class AgentState(TypedDict, total=False):
     
     next_step: Optional[str]
     plan: List[str]
+
+    final_report: str

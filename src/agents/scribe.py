@@ -3,7 +3,7 @@ from typing import Dict, Any, TypedDict, Optional, cast
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from src.schemas.scribe_schema import ScribeOutputSchema
+from src.schemas.scribe_schema import ScribeSchema
 from src.schemas.input_schema import InputSchema
 from src.state.agent_state import AgentState
 from dotenv import load_dotenv
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Carregamento do Modelo e Prompt (Escopo Global = Carrega 1 vez)
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-scribe_model = llm.with_structured_output(ScribeOutputSchema)
+scribe_model = llm.with_structured_output(ScribeSchema)
 
 try:
     with open("prompts/system_prompt.md", "r", encoding="utf-8") as f:
@@ -29,7 +29,7 @@ def scribe_node(state: AgentState) -> dict:
     The 'Scribe' Node: First step in the processing pipeline. 
     
     This agent uses a Large Language Model (LLM) to parse raw, unstructured clinical text into a 
-    structured, schema-validated JSON format (ScribeOutputSchema). 
+    structured, schema-validated JSON format (ScribeSchema). 
     It incorporates feedback loops: if a previous attempt failed validation, the error message 
     is injected back into the prompt to guide the model's correction.
 
@@ -41,7 +41,10 @@ def scribe_node(state: AgentState) -> dict:
     """
     print("--- [SCRIBE]: Starting structured extraction ---")
     
-    input_data: InputSchema = state["input"]
+    input_data = state.get("input")
+    if input_data is None:
+        raise ValueError("Input data is missing from state.")
+        
     error = state.get("validation_error", None)
     attempts = state.get("attempts", 0)
 
@@ -54,16 +57,13 @@ def scribe_node(state: AgentState) -> dict:
 
     try:
         # A chamada da LLM
-        structured_data = cast(ScribeOutputSchema, scribe_model.invoke([
+        structured_data = cast(ScribeSchema, scribe_model.invoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)
         ]))
         
         logger.info(f"Extraction success for ID {input_data.subject_id}")
-        
-        # RETORNO PARA LANGGRAPH:
-        # Retornamos apenas o que queremos atualizar no estado global
-        # Convertemos para dict para serialização fácil no estado
+
         return {
             "input": input_data,
             "extracted_data": structured_data.model_dump(),

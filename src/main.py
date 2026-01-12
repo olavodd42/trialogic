@@ -45,3 +45,5 @@ workflow.add_conditional_edges(
 )
 
 workflow.add_edge("auditor", END)
+
+app = workflow.compile()

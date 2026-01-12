@@ -90,98 +90,6 @@ class VitalsSchema(BaseModel):
         description="Level of consciousness following NEWS2 standard. Use 'Confusion' for new onset confusion, delirium, or disorientation. Use 'Alert' only if fully oriented."
     )
 
-    @field_validator("temperature")
-    def check_temperature(cls: BaseModel, v: float) -> float:
-        """
-        Validates the body temperature to ensure it falls within a biologically plausible range for humans (in Celsius).
-        
-        Range: 25.0°C (severe hypothermia) to 45.0°C (extreme hyperthermia/incompatible with life).
-        Values outside this range likely indicate extraction error or unit mismatch (e.g., Fahrenheit).
-        """
-        if v is not None and not (25.0 <= v <= 45.0):
-            raise ValueError("temperature must be between 25.0 and 45.0 Celsius")
-        return v
-
-    @field_validator("heartrate")
-    def check_heartrate(cls: BaseModel, v: int) -> int:
-        """
-        Validates heart rate (BPM).
-        
-        Range: 0 (asystole) to 300 (extreme tachyarrhythmia limit).
-        Filters out implausible values often caused by OCR or transcription errors.
-        """
-        if v is not None and not (0 <= v <= 300):
-            raise ValueError("heartrate must be between 0 and 300 BPM")
-        return v
-    
-    @field_validator("resprate")
-    def check_resprate(cls: BaseModel, v: int) -> int:
-        """
-        Validates respiratory rate (breaths/min).
-        
-        Range: >0 to 60. 
-        Values >60 are extremely rare in adults (even in severe distress) and usually indicate data entry error.
-        """
-        if v is not None and not (0 < v <= 60):
-            raise ValueError("resprate must be between 0 and 60 RPM")
-        return v
-    
-    @field_validator("o2sat")
-    def check_o2sat(cls: BaseModel, v: int) -> int:
-        """
-        Validates peripheral Oxygen Saturation (SpO2).
-        
-        Range: 0% to 100%. 
-        """
-        if v is not None and not (0 <= v <= 100):
-            raise ValueError("o2sat must be between 0 and 100 %")
-        return v
-    
-    @field_validator("sbp")
-    def check_sbp(cls: BaseModel, v: int) -> int:
-        """
-        Validates Systolic Blood Pressure (mmHg).
-        
-        Range: 10 to 400.
-        Note: <50 is critical shock; >250 is hypertensive crisis. 
-        Limits set to filter physically impossible values.
-        """
-        if v is not None and not (10 <= v <= 400):
-            raise ValueError("sbp must be between 10 and 400 mmHg")
-        return v
-
-    @field_validator("dbp")
-    def check_dbp(cls: BaseModel, v: int) -> int:
-        """
-        Validates Diastolic Blood Pressure (mmHg).
-        
-        Range: 10 to 300.
-        """
-        if v is not None and not (10 <= v <= 300):
-            raise ValueError("dbp must be between 10 and 300 mmHg")
-        return v
-    
-    @field_validator("pain")
-    def check_pain(cls: BaseModel, v: int) -> int:
-        """
-        Validates the Numeric Pain Rating Scale (NPRS).
-        
-        Range: 0 (no pain) to 10 (worst pain imaginable).
-        """
-        if v is not None and not (0 <= v <= 10):
-            raise ValueError("pain must be between 0 and 10")
-        return v
-    
-    @field_validator("acuity")
-    def check_acuity(cls: BaseModel, v: int) -> int:
-        """
-        Validates the Emergency Severity Index (ESI) level.
-        
-        Range: 1 (Most Urgent/Resuscitation) to 5 (Non-urgent).
-        """
-        if v is not None and not (1 <= v <= 5):
-            raise ValueError("acuity must be between 1 and 5")
-        return v
 
 
 class LabsSchema(BaseModel):
@@ -401,7 +309,7 @@ class TreatmentsSchema(BaseModel):
     discharge_drugs: List[DrugSchema] = Field(default_factory=list, description="Prescriptions at discharge.")
     delta_analysis: List[DeltaSchema] = Field(default_factory=list, description="Reconciliation of changes.")
 
-class ScribeOutputSchema(BaseModel):
+class ScribeSchema(BaseModel):
     """
     Master Output Schema for the Scribe Agent.
     This serves as the root structure for all extracted and synthesized clinical data from the TriaLogic pipeline.
