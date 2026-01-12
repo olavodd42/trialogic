@@ -163,4 +163,4 @@ def validator_node(state: AgentState) -> AgentState:
 def validator_router(state: AgentState) -> str:
     if state.get("validation_errors"):
         return "scribe"
-    return "supervisor_router"
+    return "supervisor"

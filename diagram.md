@@ -1,58 +1,56 @@
 ```mermaid
 graph TD
-    %% Estilos
-    classDef startend fill:#f9f,stroke:#333,stroke-width:2px,color:black;
-    classDef agent fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:black;
-    classDef tool fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:black;
-    classDef guardrail fill:#ffebee,stroke:#c62828,stroke-width:2px,stroke-dasharray: 5 5,color:black;
-    classDef decision fill:#e0f2f1,stroke:#00695c,stroke-width:2px,shape:rhombus,color:black;
+    %% --- ESTILOS ---
+    classDef startend fill:#212121,stroke:#000,stroke-width:2px,color:#fff;
+    classDef agent fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000;
+    classDef function fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#000;
+    classDef guardrail fill:#ffebee,stroke:#c62828,stroke-width:2px,stroke-dasharray: 5 5,color:#000;
+    classDef router fill:#e0f2f1,stroke:#00695c,stroke-width:2px,shape:rhombus,color:#000;
 
-    %% Nós Principais
-    Start((Start<br>Clinical Input)):::startend
-    Supervisor[Supervisor Agent<br>Router & Planning]:::agent
+    %% --- NÓS ---
+    Start((Início<br>Nota Clínica)):::startend
     
-    %% Subgrafo de Extração
-    subgraph "Phase 1: Structuring (NER)"
-        Extractor[Extractor Agent<br>LLM + Pydantic]:::agent
-        Validator{Pydantic/Logic<br>Validation}:::decision
-        Retry[Reflexion<br>Error Feedback]:::guardrail
+    %% O Cérebro
+    Supervisor[Supervisor Agent<br>State & Planning]:::agent
+
+    %% FASE 1: ESTRUTURAÇÃO & REFLEXÃO
+    subgraph "Phase 1: Structuring & Reflexion"
+        direction TB
+        Scribe[Scribe Agent<br>Information Extraction]:::agent
+        Validator{Validator<br>Logic & Pydantic}:::router
+        Retry[Reflexion Loop<br>Error Feedback]:::guardrail
     end
 
-    %% Subgrafo de Ferramentas
-    subgraph "Phase 2: Computing & RAG"
-        ToolRouter{Needs<br>Computation/Context?}:::decision
-        Calculator[Calculator Tool<br>Python Function]:::tool
-        RAG[RAG Tool<br>Vector Store Search]:::tool
-    end
-    
-    %% Subgrafo de Síntese
-    subgraph "Phase 3: Output"
-        Synthesizer[Synthesizer Agent<br>Final Reasoning]:::agent
-        End((Fim<br>JSON + Report)):::startend
+    %% FASE 2: ENRIQUECIMENTO (FERRAMENTAS)
+    subgraph "Phase 2: Enrichment"
+        direction TB
+        Mathematician[Mathematician Agent<br>Risk Calculation]:::function
+        ClinicalRAG[Clinical Retriever<br>Vector Search / RAG]:::function
     end
 
-    %% Conexões
+    %% FASE 3: SÍNTESE FINAL
+    subgraph "Phase 3: Synthesis"
+        Synthesizer[Synthesizer Agent<br>Final Audit & Reasoning]:::agent
+        Output((Fim<br>JSON + Relatório)):::startend
+    end
+
+    %% --- CONEXÕES ---
     Start --> Supervisor
-    Supervisor --> Extractor
+    Supervisor --> Scribe
     
-    Extractor --> Validator
+    %% O Ciclo de Auto-Correção (O "Pulo do Gato" Acadêmico)
+    Scribe --> Validator
+    Validator -- "❌ Erro (Alucinação/Typo)" --> Retry
+    Retry -- "Corrigir: 'BP 1200' -> ?" --> Scribe
     
-    %% Lógica de Validação (O "Guardrail")
-    Validator -- "Erro (ex: BP 1200/80)" --> Retry
-    Retry -- "Prompt com Erro" --> Extractor
-    Validator -- "Sucesso" --> ToolRouter
+    %% Fluxo de Sucesso
+    Validator -- "✅ Dados Válidos" --> Mathematician
+    Mathematician --> ClinicalRAG
+    ClinicalRAG --> Synthesizer
     
-    %% Lógica de Ferramentas
-    ToolRouter -- "Detectou Vitais" --> Calculator
-    ToolRouter -- "Dúvida/Protocolo" --> RAG
-    ToolRouter -- "Dados Completos" --> Synthesizer
-    
-    Calculator --> Synthesizer
-    RAG --> Synthesizer
-    
-    Synthesizer --> End
+    Synthesizer --> Output
 
-    %% Notas de Tech Lead
-    note1["Estado Global: <br>messages=[], <br>extracted_data={}, <br>errors=[]"]
-    note1 -.- Supervisor
+    %% --- ANOTAÇÕES TÉCNICAS ---
+    linkStyle 4 stroke:#c62828,stroke-width:2px,color:red;
+    linkStyle 5 stroke:#c62828,stroke-width:2px;
 ```
