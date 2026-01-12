@@ -1,6 +1,6 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
-from src.agents.agent_state import AgentState
+from src.state.agent_state import AgentState
 from src.tools.calculator import calculate_clinical_score # A tool refatorada
 import json
 
@@ -13,7 +13,7 @@ llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 # Tech Lead Tip: Salve o objeto com bind em uma variável nova!
 llm_with_tools = llm.bind_tools([calculate_clinical_score])
 
-def Mathematician_node(state: AgentState) -> AgentState:
+def mathematician_node(state: AgentState) -> AgentState:
     """
     O Nó Matemático:
     1. Analisa os vitais extraídos.
@@ -25,13 +25,13 @@ def Mathematician_node(state: AgentState) -> AgentState:
     # Recupera dados do Estado (Output do Scribe)
     data = state.get("extracted_data")
     if not data or not data.clinical or not data.clinical.vitals:
-        return AgentState(
-            input=state["input"],
-            extracted_data=state.get("extracted_data"),
-            validation_error=state.get("validation_error"),
-            attempts=state.get("attempts", 0),
-            risk_score_report="Sem dados clínicos válidos para calcular scores."
-        )
+        return {
+            "input": state.get("input"),
+            "extracted_data": state.get("extracted_data"),
+            "validation_error": state.get("validation_error"),
+            "attempts": state.get("attempts", 0),
+            "risk_score_report": "Sem dados clínicos válidos para calcular scores."
+        }
     
     vitals = data.clinical.vitals
     
@@ -70,7 +70,7 @@ def Mathematician_node(state: AgentState) -> AgentState:
             # pois o JSON veio como dict
             try:
                 # Importe sua classe VitalsSchema aqui
-                from src.schemas.scribe_output_schema import VitalsSchema 
+                from src.schemas.scribe_schema import VitalsSchema 
                 vitals_obj = VitalsSchema(**tool_args['vitals'])
                 score_name = tool_args['score_name']
                 
@@ -90,10 +90,10 @@ def Mathematician_node(state: AgentState) -> AgentState:
     final_score_report = "\n".join(tool_outputs)
     
     # Retornamos apenas o delta do estado que queremos atualizar
-    return AgentState(
-        input=state["input"],
-        extracted_data=state.get("extracted_data"),
-        validation_error=state.get("validation_error"),
-        attempts=state.get("attempts", 0),
-        risk_score_report=final_score_report
-    )
+    return {
+        "input": state.get("input"),
+        "extracted_data": state.get("extracted_data"),
+        "validation_error": state.get("validation_error"),
+        "attempts": state.get("attempts", 0),
+        "risk_score_report": final_score_report
+    }

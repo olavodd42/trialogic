@@ -1,3 +1,4 @@
+import os
 import json
 from typing import Dict, Any, cast
 from functools import lru_cache
@@ -7,15 +8,16 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 
-from src.agents.agent_state import AgentState
+from src.state.agent_state import AgentState
 from src.schemas.auditor_schema import AuditorEvaluation
 
+PERSIST_DIRECTORY = os.path.join(os.getcwd(), "chroma_db")
 # --- SETUP (Singleton Pattern to the Database) ---
 @lru_cache(maxsize=1)
 def get_vectorstore():
     """Carrega o banco vetorial apenas uma vez em memória."""
     return Chroma(
-        persist_directory="./chroma_db",
+        persist_directory=PERSIST_DIRECTORY,
         embedding_function=OpenAIEmbeddings()
     )
 
@@ -78,8 +80,7 @@ def auditor_node(state: AgentState) -> dict | AgentState:
     # Filter definition
     retriever_kwargs: Dict[str, Any] = {"k": 3}
     if state.get("context_category"):
-         retriever_kwargs["filter"] = {"context_category": state["context_category"]}
-
+            retriever_kwargs["filter"] = {"category": state["context_category"]}
     docs = vectorstore.similarity_search(search_query, **retriever_kwargs)
 
     retrieved_context = "\n\n".join([f"[Source: {d.metadata.get('source_type', 'Unknown')}]\n{d.page_content}" for d in docs])

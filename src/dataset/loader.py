@@ -4,9 +4,37 @@ import polars as pl
 
 def load_discharge_dataset(file_path: str | None = None, n: int | None = None) -> pl.DataFrame:
     """
-    Carrega o dataset de discharge.csv usando Polars para alta performance.
-    Retorna um DataFrame do Polars.
+    Loads the discharge dataset from a CSV file into a Polars DataFrame.
+    This function attempts to load data from a specified CSV file. If no file path is provided,
+    it defaults to looking for 'discharge.csv' in the 'data' directory relative to the project root.
+    It supports loading a subset of rows for previewing or testing purposes.
+    Parameters
+    ----------
+    file_path : str | None, optional
+        The absolute or relative path to the CSV file. If None, the function constructs
+        a default path based on the project structure (project_root/data/discharge.csv).
+        Defaults to None.
+    n : int | None, optional
+        The number of rows to read from the CSV file. If None, the entire dataset is loaded.
+        Defaults to None.
+    Returns
+    -------
+    pl.DataFrame
+        A Polars DataFrame containing the loaded data.
+    Raises
+    ------
+    FileNotFoundError
+        If the file at the specified or default `file_path` does not exist.
+    Exception
+        If any error occurs during the file reading process (e.g., parsing errors, permission issues).
+    Examples
+    --------
+    >>> # Load the full default dataset
+    >>> df = load_discharge_dataset()
+    >>> # Load only the first 100 rows from a custom path
+    >>> df = load_discharge_dataset(file_path="path/to/my_data.csv", n=100)
     """
+
     if file_path is None:
         # Define o caminho padrão relativo à raiz do projeto
         # Estrutura esperada: root/src/dataset/loader.py -> root/data/discharge.csv
@@ -31,7 +59,7 @@ def load_discharge_dataset(file_path: str | None = None, n: int | None = None) -
         print(f"Erro ao carregar o dataset: {e}")
         raise e
 
-if __name__ == "__main__":
-
-    df = load_discharge_dataset()
-    print(df.head())
+## DEBUG
+# if __name__ == "__main__":
+#     df = load_discharge_dataset()
+#     print(df.head())

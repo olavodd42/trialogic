@@ -1,26 +1,48 @@
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool
-from src.schemas.scribe_output_schema import VitalsSchema
+from src.schemas.scribe_schema import VitalsSchema
 from src.schemas.mathematician_schema import ScoreCapability
-
 
 # --- Schemas Auxiliares para Auditoria ---
 class ScoreBreakdown(BaseModel):
+    """
+    Schema representing the detailed result of a clinical score calculation.
+    
+    Attributes:
+        total_score (int): The final calculated score.
+        breakdown (Dict[str, int]): A mapping of each vital sign component to its individual sub-score.
+        assumptions_used (List[str]): A list of assumptions made during calculation due to missing data.
+    """
     total_score: int
     breakdown: Dict[str, int]  # Ex: {"resprate": 3, "sbp": 0}
     assumptions_used: List[str]
 
 # --- Refatoração da Lógica de Cálculo ---
 class VitalSignCalculator:
+    """
+    Utility class encapsulating the logic for safe retrieval of values and deterministic calculation 
+    of clinical scores like NEWS and MEWS.
+    """
 
     @staticmethod
-    def _safe_get(value: Any, default: Any) -> Any:
-        """Helper para evitar comparar None com int."""
+    def _safe_get(value: Optional[int | float], default: int | float) -> int | float:
+        """Helper ensuring safe comparison/operations by providing a default value if the input is None."""
         return value if value is not None else default
 
     @staticmethod
     def check_capability(vitals: 'VitalsSchema', score_name: str) -> 'ScoreCapability':
+        """
+        Verifies if the necessary vital signs are available to calculate the specified score.
+        Identifies missing fields and makes standard clinical assumptions for missing neurological or oxygen data if applicable.
+        
+        Args:
+            vitals (VitalsSchema): The patient's extracted vital signs.
+            score_name (str): The name of the score to check (e.g., "NEWS", "MEWS").
+            
+        Returns:
+            ScoreCapability: An object indicating if calculation is possible, what is missing, and what assumptions were made.
+        """
         # 1. Definição do que é obrigatório
         required_fields = {
             "resprate": vitals.resprate,
@@ -61,6 +83,16 @@ class VitalSignCalculator:
 
     @staticmethod
     def calculate_news(vitals: 'VitalsSchema', assumptions: List[str]) -> ScoreBreakdown:
+        """
+        Calculates the National Early Warning Score (NEWS) based on vital signs.
+        
+        Args:
+            vitals (VitalsSchema): The patient's vital signs.
+            assumptions (List[str]): List of assumptions already made regarding missing data.
+            
+        Returns:
+            ScoreBreakdown: The total score and component breakdown.
+        """
         score = 0
         details = {}
         
@@ -135,6 +167,16 @@ class VitalSignCalculator:
 
     @staticmethod
     def calculate_mews(vitals: 'VitalsSchema', assumptions: List[str]) -> ScoreBreakdown:
+        """
+        Calculates the Modified Early Warning Score (MEWS) based on vital signs.
+        
+        Args:
+            vitals (VitalsSchema): The patient's vital signs.
+            assumptions (List[str]): List of assumptions already made regarding missing data.
+            
+        Returns:
+            ScoreBreakdown: The total score and component breakdown.
+        """
         score = 0
         details = {}
 
@@ -209,8 +251,15 @@ class VitalSignCalculator:
 @tool
 def calculate_clinical_score(vitals: 'VitalsSchema', score_name: str) -> str:
     """
-    Calcula scores clínicos (NEWS ou MEWS) de forma determinística.
-    Retorna uma string formatada com o score total e os detalhes.
+    Calculates clinical risk scores (NEWS or MEWS) deterministically given the patient's vital signs.
+    It handles missing data by checking capability and applying standard clinical default assumptions where appropriate.
+    
+    Args:
+        vitals (VitalsSchema): The structured vital signs extracted from the triage note.
+        score_name (str): The identifier of the score to calculate ("NEWS" or "MEWS").
+        
+    Returns:
+        str: A formatted string containing the total score, breakdown of points per vital, and any assumptions made.
     """
     # 1. Verifica Capacidade
     capability = VitalSignCalculator.check_capability(vitals, score_name)

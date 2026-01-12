@@ -1,11 +1,11 @@
 import logging
-from typing import Dict, Any, TypedDict, Optional
+from typing import Dict, Any, TypedDict, Optional, cast
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from src.schemas.scribe_output_schema import ScribeOutputSchema
+from src.schemas.scribe_schema import ScribeOutputSchema
 from src.schemas.input_schema import InputSchema
-from src.agents.agent_state import AgentState
+from src.state.agent_state import AgentState
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -24,10 +24,20 @@ except FileNotFoundError:
     # Fail-fast: Se não tem prompt, o sistema nem deve subir
     raise RuntimeError("Critical: system_prompt.md not found.")
 
-def scribe_node(state: AgentState) -> AgentState:
+def scribe_node(state: AgentState) -> dict:
     """
-    Nó 1: The Scribe
-    Integration with LLM to extract structured data from unstructured clinical text.
+    The 'Scribe' Node: First step in the processing pipeline. 
+    
+    This agent uses a Large Language Model (LLM) to parse raw, unstructured clinical text into a 
+    structured, schema-validated JSON format (ScribeOutputSchema). 
+    It incorporates feedback loops: if a previous attempt failed validation, the error message 
+    is injected back into the prompt to guide the model's correction.
+
+    Args:
+        state (AgentState): The current state of the agent workflow, containing the raw input and any error metadata.
+
+    Returns:
+        dict: The updated state with the extracted structured data (or error details).
     """
     print("--- [SCRIBE]: Starting structured extraction ---")
     
@@ -44,10 +54,10 @@ def scribe_node(state: AgentState) -> AgentState:
 
     try:
         # A chamada da LLM
-        structured_data = scribe_model.invoke([
+        structured_data = cast(ScribeOutputSchema, scribe_model.invoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)
-        ])
+        ]))
         
         logger.info(f"Extraction success for ID {input_data.subject_id}")
         
@@ -74,7 +84,15 @@ def scribe_node(state: AgentState) -> AgentState:
         }
     
 def validator(state: AgentState) -> str:
-    """Function to validate the extracted data."""
+    """
+    Conditional logic to determine the next step in the workflow graph.
+    
+    Checks if the Scribe's extraction resulted in a validation error.
+    
+    Returns:
+        str: "next_node" if extraction was successful (proceed to Risk Assessment), 
+             or "continue" to retry the Scribe step with error feedback.
+    """
     error = state.get("validation_error", None)
     attempts = state.get("attempts", 0)
     MAX_RETRIES = 3

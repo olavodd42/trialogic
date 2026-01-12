@@ -4,7 +4,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 
-PERSIST_DIRECTORY = "C:/Users/OlavoDefendiDalberto/Projetos/TriaLogic/chromadb"
+PERSIST_DIRECTORY = os.path.join(os.getcwd(), "chroma_db")
 def load_pdf(filepath: str, category: str, source_type: str):
     print(f"📚 Ingerindo: {filepath} como categoria '{category}'...")
 
