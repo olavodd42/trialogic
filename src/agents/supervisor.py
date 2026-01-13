@@ -1,7 +1,7 @@
-from typing import List, Literal, Optional
+from typing import List, Literal, Dict
 from src.state.agent_state import AgentState
 
-def supervisor_planning(state: AgentState) -> dict:
+def supervisor_planning(state: AgentState) -> Dict[str, List[str]]:
     """
     Supervisor Node (Planning Phase): Defines the execution plan (workflow) for the agent.
 
@@ -16,7 +16,7 @@ def supervisor_planning(state: AgentState) -> dict:
     """
     print("--- 🧠 NODE: SUPERVISOR (PLANNING) ---")
 
-    initial_plan = ["scribe", "mathematician", "auditor"]
+    initial_plan = ["scribe", "mathematician", "clinical_rag"]
     # We return a dict to update the state.
     # Note: 'plan' key needs to be existent in AgentState if we use TypedDict with strict keys,
     # but AgentState definition showed earlier might not have 'plan' (checked earlier, it ended with context/auditor keys).
@@ -25,7 +25,7 @@ def supervisor_planning(state: AgentState) -> dict:
     # However, for now, we just return the update.
     return {"plan": initial_plan} 
 
-def supervisor_router(state: AgentState) -> Literal["scribe", "mathematician", "auditor", "end"]:
+def supervisor_router(state: AgentState) -> Literal["scribe", "mathematician", "clinical_rag", "END"]:
     """
     Supervisor Router: Determines the next step in the workflow based on the state.
 
@@ -60,26 +60,16 @@ def supervisor_router(state: AgentState) -> Literal["scribe", "mathematician", "
     
     if not extracted and attempts >= 3:
         print("❌ Max attempts reached for extraction. Giving up.")
-        return "end"
+        return "END"
 
     # 3. Calculation Phase
-    if extracted and not risk:
-        return "mathematician"
-
-    # 4. Context/Audit Phase
-    # Assuming 'auditor' node handles both context retrieval and auditing (as represented by synthesizer/clinical_rag logic previously seen)
-    # The 'auditor' node in the plan seems to point to the 'auditor_node' function which does RAG + Audit.
-    if risk and not audit:
-        return "auditor" # or "clinical_rag" depending on graph definition.
-        # Based on file structure, 'clinical_rag' and 'synthesizer' exist, but 'auditor.py' also exists.
-        # This router assumes the graph nodes are named "scribe", "mathematician", "auditor".
-        
-    return "end"
-    
     if extracted and not risk:
         return "mathematician"
     
     if risk and not context:
         return "clinical_rag"
+    
+    if audit:
+        return "END"
     
     return "END"

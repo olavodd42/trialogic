@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Dict
+from typing import Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import SecretStr
@@ -34,7 +34,7 @@ except FileNotFoundError:
     # Fail-fast: System cannot start without the prompt
     raise RuntimeError(f"Critical: scribe_prompt.md not found at {prompt_path}.")
 
-def scribe_node(state: AgentState) -> Dict:
+def scribe_node(state: AgentState) -> Dict[str, Any]:
     """
     The 'Scribe' Node: First step in the processing pipeline. 
     
@@ -76,11 +76,9 @@ def scribe_node(state: AgentState) -> Dict:
         logger.info(f"Extraction success for ID {input_data.subject_id}")
 
         return {
-            "extract_data": structured_data, # Use the object, NOT model_dump()
-            "extracted_data": structured_data, # Ensure the correct key is used (extracted_data)
-            "validation_errors": [], # reset errors on success
+            "extracted_data": structured_data,
+            "validation_errors": [],
             "attempts": attempts + 1,
-            # risk_score_report will be filled later. No need to clear it if it doesn't exist.
         }
     
     except Exception as e:

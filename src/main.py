@@ -16,10 +16,10 @@ from src.agents.mathematician import mathematician_node
 from src.agents.clinical_rag import clinical_rag_node
 from src.agents.synthesizer import synthesizer_node
 
-# Initialize the State Graph
+# --- GRAPH ---
 workflow = StateGraph(AgentState)
 
-# Add Nodes
+# --- NODES ---
 workflow.add_node("supervisor", supervisor_planning)
 workflow.add_node("scribe", scribe_node)
 workflow.add_node("validator", validator_node)
@@ -27,27 +27,22 @@ workflow.add_node("mathematician", mathematician_node)
 workflow.add_node("clinical_rag", clinical_rag_node)
 workflow.add_node("synthesizer", synthesizer_node)
 
-# Set Entry Point
-workflow.set_entry_point("supervisor")
+# --- EDGES ---
+# workflow.set_entry_point("supervisor")
 
-# Supervisor Routing
-# The supervisor decides which agent to call next based on the state.
-workflow.add_conditional_edges(
-    "supervisor",
+# Entry Point
+workflow.set_conditional_entry_point(
     supervisor_router,
     {
         "scribe": "scribe",
         "mathematician": "mathematician",
-        "auditor": "clinical_rag", # Route 'auditor' task to clinical_rag node (start of audit pipeline)
+        "clinical_rag": "clinical_rag",
         "end": END
     }
 )
 
-# Scribe -> Validator Flow
+# Validation loop
 workflow.add_edge("scribe", "validator")
-
-# Validator Routing
-# If validation fails, retry scribe. Else, return to supervisor to plan next step.
 workflow.add_conditional_edges(
     "validator",
     validator_router,
@@ -57,12 +52,19 @@ workflow.add_conditional_edges(
     }
 )
 
-# Mathematician -> Supervisor Flow
-workflow.add_edge("mathematician", "supervisor")
+# Return to supervisor
+workflow.add_conditional_edges(
+    "mathematician",
+    supervisor_router,
+    {
+        "clinical_rag": "clinical_rag",
+        "end": END,
+        "auditor": "clinical_rag"} # Mapeie auditor->clinical_rag se tiver string velha
+)
 
 # Clinical RAG (Retrieval) -> Synthesizer (Audit) -> Supervisor Flow
 workflow.add_edge("clinical_rag", "synthesizer")
-workflow.add_edge("synthesizer", "supervisor")
+workflow.add_edge("synthesizer", END)
 
 # Compile the graph
 app = workflow.compile()
