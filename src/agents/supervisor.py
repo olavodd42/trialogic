@@ -12,6 +12,7 @@ def supervisor_router(state: AgentState) -> str:
     extracted = state.get("extracted_data")
     risk = state.get("risk_score_report")
     audit = state.get("auditor_report")
+    context = state.get("context_text")
 
     if not extracted:
         return "scribe"
@@ -19,7 +20,7 @@ def supervisor_router(state: AgentState) -> str:
     if extracted and not risk:
         return "mathematician"
     
-    if risk and not audit:
-        return "auditor"
+    if risk and not context:
+        return "clinical_rag"
     
     return "END"

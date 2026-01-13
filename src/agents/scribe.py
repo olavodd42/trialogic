@@ -19,12 +19,12 @@ scribe_model = llm.with_structured_output(ScribeSchema)
 
 try:
     with open("prompts/system_prompt.md", "r", encoding="utf-8") as f:
-        SYSTEM_PROMPT_CONTENT = f.read()
+        SCRIBE_SYSTEM_PROMPT = f.read()
 except FileNotFoundError:
     # Fail-fast: Se não tem prompt, o sistema nem deve subir
     raise RuntimeError("Critical: system_prompt.md not found.")
 
-def scribe_node(state: AgentState) -> dict:
+def scribe_node(state: AgentState) -> Dict:
     """
     The 'Scribe' Node: First step in the processing pipeline. 
     
@@ -39,28 +39,25 @@ def scribe_node(state: AgentState) -> dict:
     Returns:
         dict: The updated state with the extracted structured data (or error details).
     """
-    print("--- [SCRIBE]: Starting structured extraction ---")
+    print("--- ✍️ NODE: SCRIBE ---")
     
     input_data = state.get("input")
-    if input_data is None:
-        raise ValueError("Input data is missing from state.")
-        
-    error = state.get("validation_error", None)
+    input_text = input_data.raw_text
+    errors = state.get("errors", [])
+
+    messages = [
+        SystemMessage(content=SCRIBE_SYSTEM_PROMPT),
+        HumanMessage(content=f"Clinical Note: {input_text}")
+    ]
     attempts = state.get("attempts", 0)
-
-    system_prompt = SYSTEM_PROMPT_CONTENT
-    user_prompt = input_data.raw_text
-
-    if error:
-        user_prompt += f"\n\nNote that the previous attempt resulted in the following validation error: \
-            {error}\nPlease correct the output accordingly."
+    if errors:
+        print(f"🔄 Scribe retrying due to errors: {errors}")
+        error_msg = f"Your previous extraction had critical errors: {errors}. Please fix them and extract again."
+        messages.append(HumanMessage(content=error_msg))
 
     try:
         # A chamada da LLM
-        structured_data = cast(ScribeSchema, scribe_model.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt)
-        ]))
+        structured_data = cast(ScribeSchema, llm.invoke(messages))
         
         logger.info(f"Extraction success for ID {input_data.subject_id}")
 
@@ -82,21 +79,3 @@ def scribe_node(state: AgentState) -> dict:
             "attempts": attempts + 1,
             "risk_score_report": None
         }
-    
-def validator(state: AgentState) -> str:
-    """
-    Conditional logic to determine the next step in the workflow graph.
-    
-    Checks if the Scribe's extraction resulted in a validation error.
-    
-    Returns:
-        str: "next_node" if extraction was successful (proceed to Risk Assessment), 
-             or "continue" to retry the Scribe step with error feedback.
-    """
-    error = state.get("validation_error", None)
-    attempts = state.get("attempts", 0)
-    MAX_RETRIES = 3
-    
-    if not error:
-        return "next_node"
-    return "continue"

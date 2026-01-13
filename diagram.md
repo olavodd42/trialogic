@@ -1,56 +1,37 @@
 ```mermaid
 graph TD
-    %% --- ESTILOS ---
-    classDef startend fill:#212121,stroke:#000,stroke-width:2px,color:#fff;
+    %% Estilos
+    classDef hub fill:#212121,stroke:#fff,stroke-width:4px,color:#fff;
     classDef agent fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000;
-    classDef function fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#000;
-    classDef guardrail fill:#ffebee,stroke:#c62828,stroke-width:2px,stroke-dasharray: 5 5,color:#000;
-    classDef router fill:#e0f2f1,stroke:#00695c,stroke-width:2px,shape:rhombus,color:#000;
+    classDef check fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#000;
+    classDef endnode fill:#000,stroke:#fff,color:#fff;
 
-    %% --- NÓS ---
-    Start((Início<br>Nota Clínica)):::startend
+    Start((Input)) --> Supervisor
+
+    %% O Hub Central
+    Supervisor{Supervisor<br>Router}:::hub
+
+    %% Os Agentes
+    Scribe[Scribe Agent<br>Extraction]:::agent
+    Validator{Validator<br>Check Errors}:::check
+    Mathematician[Mathematician<br>Calc Risk]:::agent
+    Auditor[Auditor Agent<br>RAG + Synthesis]:::agent
     
-    %% O Cérebro
-    Supervisor[Supervisor Agent<br>State & Planning]:::agent
+    %% O Fluxo Controlado pelo Supervisor
+    Supervisor -- "No Data" --> Scribe
+    Supervisor -- "Has Data, No Risk" --> Mathematician
+    Supervisor -- "Has Risk, No Audit" --> Auditor
+    Supervisor -- "All Done" --> End((FIM)):::endnode
 
-    %% FASE 1: ESTRUTURAÇÃO & REFLEXÃO
-    subgraph "Phase 1: Structuring & Reflexion"
-        direction TB
-        Scribe[Scribe Agent<br>Information Extraction]:::agent
-        Validator{Validator<br>Logic & Pydantic}:::router
-        Retry[Reflexion Loop<br>Error Feedback]:::guardrail
-    end
-
-    %% FASE 2: ENRIQUECIMENTO (FERRAMENTAS)
-    subgraph "Phase 2: Enrichment"
-        direction TB
-        Mathematician[Mathematician Agent<br>Risk Calculation]:::function
-        ClinicalRAG[Clinical Retriever<br>Vector Search / RAG]:::function
-    end
-
-    %% FASE 3: SÍNTESE FINAL
-    subgraph "Phase 3: Synthesis"
-        Synthesizer[Synthesizer Agent<br>Final Audit & Reasoning]:::agent
-        Output((Fim<br>JSON + Relatório)):::startend
-    end
-
-    %% --- CONEXÕES ---
-    Start --> Supervisor
-    Supervisor --> Scribe
-    
-    %% O Ciclo de Auto-Correção (O "Pulo do Gato" Acadêmico)
+    %% O Loop de Validação (A única aresta que foge do Supervisor)
     Scribe --> Validator
-    Validator -- "❌ Erro (Alucinação/Typo)" --> Retry
-    Retry -- "Corrigir: 'BP 1200' -> ?" --> Scribe
-    
-    %% Fluxo de Sucesso
-    Validator -- "✅ Dados Válidos" --> Mathematician
-    Mathematician --> ClinicalRAG
-    ClinicalRAG --> Synthesizer
-    
-    Synthesizer --> Output
+    Validator -- "❌ Error Found" --> Scribe
+    Validator -- "✅ Valid" --> Supervisor
 
-    %% --- ANOTAÇÕES TÉCNICAS ---
-    linkStyle 4 stroke:#c62828,stroke-width:2px,color:red;
+    %% Retornos ao Hub
+    Mathematician --> Supervisor
+    Auditor --> Supervisor
+
+    %% Links de Estilo
     linkStyle 5 stroke:#c62828,stroke-width:2px;
 ```
