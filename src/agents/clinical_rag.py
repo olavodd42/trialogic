@@ -28,7 +28,11 @@ load_dotenv()
 # Configuração de Logs (Essencial para TCC e Debug)
 logger = logging.getLogger(__name__)
 
-PERSIST_DIRECTORY = os.path.join(os.getcwd(), "chroma_db")
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# Sobe dois níveis para chegar na raiz do projeto (ajuste conforme sua pasta)
+project_root = os.path.dirname(os.path.dirname(current_dir))
+# Define o caminho fixo na raiz
+PERSIST_DIRECTORY = os.path.join(project_root, "chroma_db")
 
 @lru_cache(maxsize=1)
 def get_vectorstore():
