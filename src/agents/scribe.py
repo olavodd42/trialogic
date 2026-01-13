@@ -1,7 +1,9 @@
+import os
 import logging
-from typing import Dict, Any, TypedDict, Optional, cast
+from typing import Dict
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import SecretStr
 
 from src.schemas.scribe_schema import ScribeSchema
 from src.schemas.input_schema import InputSchema
@@ -9,20 +11,28 @@ from src.state.agent_state import AgentState
 from dotenv import load_dotenv
 load_dotenv()
 
-# Configuração de Logs (Essencial para TCC e Debug)
+# Logger Configuration
 logger = logging.getLogger(__name__)
 
 
-# Carregamento do Modelo e Prompt (Escopo Global = Carrega 1 vez)
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+# Load Model and Prompt (Global Scope = Load Once)
+llm = ChatOpenAI(
+    base_url="http://127.0.0.1:1234/v1",
+    api_key=SecretStr("lm-studio"),
+    model="gpt-4o-mini",
+    temperature=0
+)
+
 scribe_model = llm.with_structured_output(ScribeSchema)
 
+# Load prompt with cross-platform path handling
+prompt_path = os.path.join(os.getcwd(), "prompts", "scribe_prompt.md")
 try:
-    with open("prompts/system_prompt.md", "r", encoding="utf-8") as f:
+    with open(prompt_path, "r", encoding="utf-8") as f:
         SCRIBE_SYSTEM_PROMPT = f.read()
 except FileNotFoundError:
-    # Fail-fast: Se não tem prompt, o sistema nem deve subir
-    raise RuntimeError("Critical: system_prompt.md not found.")
+    # Fail-fast: System cannot start without the prompt
+    raise RuntimeError(f"Critical: scribe_prompt.md not found at {prompt_path}.")
 
 def scribe_node(state: AgentState) -> Dict:
     """
@@ -34,7 +44,7 @@ def scribe_node(state: AgentState) -> Dict:
     is injected back into the prompt to guide the model's correction.
 
     Args:
-        state (AgentState): The current state of the agent workflow, containing the raw input and any error metadata.
+        state (AgentState): The current state of the agent workflow.
 
     Returns:
         dict: The updated state with the extracted structured data (or error details).
@@ -42,8 +52,12 @@ def scribe_node(state: AgentState) -> Dict:
     print("--- ✍️ NODE: SCRIBE ---")
     
     input_data = state.get("input")
+    # Handle the case where input might not be what we expect, though strict typing suggests it is InputSchema
+    if not input_data:
+        return {"validation_errors": ["No input data provided."]}
+
     input_text = input_data.raw_text
-    errors = state.get("errors", [])
+    errors = state.get("validation_errors", [])
 
     messages = [
         SystemMessage(content=SCRIBE_SYSTEM_PROMPT),
@@ -56,26 +70,24 @@ def scribe_node(state: AgentState) -> Dict:
         messages.append(HumanMessage(content=error_msg))
 
     try:
-        # A chamada da LLM
-        structured_data = cast(ScribeSchema, llm.invoke(messages))
+        # LLM Call - returns Pydantic object
+        structured_data = scribe_model.invoke(messages)
         
         logger.info(f"Extraction success for ID {input_data.subject_id}")
 
         return {
-            "input": input_data,
-            "extracted_data": structured_data.model_dump(),
-            "validation_error": None,
+            "extract_data": structured_data, # Use the object, NOT model_dump()
+            "extracted_data": structured_data, # Ensure the correct key is used (extracted_data)
+            "validation_errors": [], # reset errors on success
             "attempts": attempts + 1,
-            "risk_score_report": None  # Inicialmente None, será preenchido depois
+            # risk_score_report will be filled later. No need to clear it if it doesn't exist.
         }
     
     except Exception as e:
         logger.error(f"LLM Validation failed: {e}")
-        # Graceful degradation: Não quebre o grafo, marque como erro
+        # Graceful degradation: Do not break the graph, mark as error
         return {
-            "input": input_data,
             "extracted_data": None,
-            "validation_error": str(e),
+            "validation_errors": [str(e)],
             "attempts": attempts + 1,
-            "risk_score_report": None
         }

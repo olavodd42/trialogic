@@ -1,99 +1,96 @@
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
-from src.state.agent_state import AgentState
-from src.tools.calculator import calculate_clinical_score # A tool refatorada
-import json
-
-# Carrega variáveis
+from langchain_core.messages import SystemMessage, HumanMessage
+from pydantic import SecretStr
 from dotenv import load_dotenv
+
+from src.state.agent_state import AgentState
+from src.tools.calculator import calculate_clinical_score
+from src.schemas.scribe_schema import VitalsSchema
+
 load_dotenv()
 
 # 1. Configuração Correta do LLM com Tools
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-# Tech Lead Tip: Salve o objeto com bind em uma variável nova!
+llm = ChatOpenAI(
+    base_url="http://127.0.0.1:1234/v1",
+    api_key=SecretStr("lm-studio"),
+    model="gpt-4o-mini",
+    temperature=0
+)
+# Tech Lead Tip: Save the object with bind in a new variable!
 llm_with_tools = llm.bind_tools([calculate_clinical_score])
 
-def mathematician_node(state: AgentState) -> AgentState:
+def mathematician_node(state: AgentState) -> dict:
     """
-    O Nó Matemático:
-    1. Analisa os vitais extraídos.
-    2. Decide qual score é pertinente (ou ambos).
-    3. Invoca a tool determinística (Python).
-    4. Atualiza o estado com o resultado auditável.
+    The Mathematician Node:
+    1. Analyzes the extracted vitals.
+    2. Decides which score is pertinent (or both).
+    3. Invokes the deterministic tool (Python).
+    4. Updates the state with the auditable result.
+
+    Args:
+        state (AgentState): Current state of the workflow.
+
+    Returns:
+        dict: Partial state update containing the risk score report.
     """
     
-    # Recupera dados do Estado (Output do Scribe)
+    # Recover data from State (Scribe Output)
     data = state.get("extracted_data")
     if not data or not data.clinical or not data.clinical.vitals:
         return {
-            "input": state.get("input"),
-            "extracted_data": state.get("extracted_data"),
-            "validation_error": state.get("validation_error"),
-            "attempts": state.get("attempts", 0),
-            "risk_score_report": "Sem dados clínicos válidos para calcular scores."
+            "risk_score_report": "No valid clinical data to calculate scores."
         }
     
     vitals = data.clinical.vitals
     
-    # 2. Prompt Focado em AÇÃO (Tool Call), não em Cálculo Mental
+    # 2. Prompt Focused on ACTION (Tool Call), not Mental Calculation
     system_msg = SystemMessage(content="""
-    Você é um assistente clínico rigoroso. Sua única função é calcular scores de risco usando a ferramenta disponível.
-    NÃO calcule nada de cabeça.
-    1. Analise os sinais vitais fornecidos.
-    2. Chame a ferramenta 'calculate_clinical_score' para 'MEWS' e/ou 'NEWS'.
-    3. Se houver dados suficientes, calcule ambos.
+    You are a rigorous clinical assistant. Your only function is to calculate risk scores using the available tool.
+    DO NOT calculate anything mentally.
+    1. Analyze the provided vital signs.
+    2. Call the tool 'calculate_clinical_score' for 'MEWS' and/or 'NEWS'.
+    3. If there is sufficient data, calculate both.
     """)
     
-    # Serializamos o objeto Pydantic para JSON para o LLM entender a estrutura
-    # Isso é mais limpo que fazer f-strings manuais
+    # Serialize Pydantic object to JSON for the LLM
     vitals_json = vitals.model_dump_json()
     
-    user_msg = HumanMessage(content=f"Sinais Vitais do Paciente: {vitals_json}")
+    user_msg = HumanMessage(content=f"Patient Vital Signs: {vitals_json}")
     
-    # 3. Invocação do Modelo
+    # 3. Model Invocation
     response = llm_with_tools.invoke([system_msg, user_msg])
     
-    # 4. Execução da Tool (Manual Execution para controle total)
-    # No LangGraph, poderíamos ter um nó separado 'ToolNode', mas para TCC, 
-    # fazer in-line aqui mostra controle sobre o fluxo.
-    
+    # 4. Tool Execution (Manual Execution for full control)
     tool_outputs = []
     
     if response.tool_calls:
-        print(f"DEBUG: O Agente decidiu chamar {len(response.tool_calls)} ferramentas.")
+        print(f"DEBUG: Agent decided to call {len(response.tool_calls)} tools.")
         
         for tool_call in response.tool_calls:
-            # O LangChain já parseou os argumentos para nós
+            # LangChain has already parsed the arguments for us
             tool_args = tool_call["args"]
             
-            # Precisamos reconstruir o objeto VitalsSchema para passar para a função Python
-            # pois o JSON veio como dict
+            # Reconstruct VitalsSchema object to pass to Python function
             try:
-                # Importe sua classe VitalsSchema aqui
-                from src.schemas.scribe_schema import VitalsSchema 
                 vitals_obj = VitalsSchema(**tool_args['vitals'])
                 score_name = tool_args['score_name']
                 
-                # Executa a função Python determinística
+                # Execute deterministic Python function
                 result_str = calculate_clinical_score.invoke({"vitals": vitals_obj, "score_name": score_name})
                 
                 tool_outputs.append(result_str)
                 
             except Exception as e:
-                tool_outputs.append(f"Erro ao executar cálculo: {str(e)}")
+                tool_outputs.append(f"Error executing calculation: {str(e)}")
     else:
-        print("DEBUG: O Agente não quis chamar nenhuma ferramenta.")
-        tool_outputs.append("Nenhum score calculado (dados insuficientes ou decisão do agente).")
+        print("DEBUG: Agent did not call any tools.")
+        tool_outputs.append("No score calculated (insufficient data or agent decision).")
 
-    # 5. Atualização do Estado
-    # Unificamos os resultados em uma string consolidada para o próximo agente (Auditor)
+    # 5. State Update
+    # Unify results into a consolidated string for the next agent
     final_score_report = "\n".join(tool_outputs)
     
-    # Retornamos apenas o delta do estado que queremos atualizar
+    # Return only the state delta to update
     return {
-        "input": state.get("input"),
-        "extracted_data": state.get("extracted_data"),
-        "validation_error": state.get("validation_error"),
-        "attempts": state.get("attempts", 0),
         "risk_score_report": final_score_report
     }
