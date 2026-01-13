@@ -40,3 +40,4 @@ Thumbs.db
 # Project specific
 data/
 test*.py
+chroma_db/
