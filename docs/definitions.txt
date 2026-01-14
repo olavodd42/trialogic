@@ -1,4 +1,5 @@
 SOURCE: GLOBAL CLINICAL DEFINITIONS (GOLD STANDARD CHEAT SHEET)
+OFFICIAL TITLE: TriaLogic Internal Protocol Registry (Based on Sepsis-3/NEWS2)
 
 SECTION: HYPOTENSION AND SHOCK CRITERIA
 1. Sepsis-3 Definition of Hypotension: Mean Arterial Pressure (MAP) < 65 mmHg.
