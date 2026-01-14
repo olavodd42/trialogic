@@ -100,6 +100,9 @@ def clinical_rag_node(state: AgentState) -> Dict[str, Any]:
     # Corrected method from 'invoque' to 'invoke'
     search_query = str(llm.invoke(query_msg).content)
 
+    print(query_msg)
+    print(f"[ASSISTANT]: {search_query}")
+
     # ----------------------------------------
     # SUB-STEP B: RETRIEVAL (RAG)
     # ----------------------------------------
@@ -117,6 +120,7 @@ def clinical_rag_node(state: AgentState) -> Dict[str, Any]:
             f"[Source: {d.metadata.get('source_type', 'Guideline')}]\n{d.page_content}" 
             for d in docs
         ])
+        print(f"[RAG]: {retrieved_context}")
     else:
         retrieved_context = "No specific protocol found in the database."
         print("⚠️ [WARNING]: No documents retrieved.")

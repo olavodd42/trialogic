@@ -3,6 +3,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import SecretStr
 from dotenv import load_dotenv
+from typing import Dict, Any
 
 from src.state.agent_state import AgentState
 from src.tools.calculator import calculate_clinical_score
@@ -23,7 +24,7 @@ llm_with_tools = llm.bind_tools([calculate_clinical_score])
 with open(os.path.join(os.getcwd(), "prompts/mathematician_prompt.md")) as f:
     system_msg = f.read()
 
-def mathematician_node(state: AgentState) -> dict:
+def mathematician_node(state: AgentState) -> Dict[str, Any]:
     """
     The Mathematician Node:
     1. Analyzes the extracted vitals.
@@ -61,6 +62,9 @@ def mathematician_node(state: AgentState) -> dict:
     
     # 3. Model Invocation
     response = llm_with_tools.invoke([system_msg, user_msg])
+    print(system_msg)
+    print(user_msg)
+    print(f"[ASSISTANT]: {response}")
     
     # 4. Tool Execution (Manual Execution for full control)
     tool_outputs = []
@@ -79,6 +83,7 @@ def mathematician_node(state: AgentState) -> dict:
                 
                 # Execute deterministic Python function
                 result_str = calculate_clinical_score.invoke({"vitals": vitals_obj, "score_name": score_name})
+                print(f"RESULT: {result_str}")
                 
                 tool_outputs.append(result_str)
                 

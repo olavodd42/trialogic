@@ -73,10 +73,14 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
         messages.append(HumanMessage(content=error_msg))
 
     try:
+        
         # LLM Call - returns Pydantic object
         structured_data = scribe_model.invoke(messages)
         
         logger.info(f"Extraction success for ID {input_data.subject_id}")
+        print(f"{messages}")
+        print(f"[ASSISTANT]:")
+        print(structured_data)
 
         return {
             "extracted_data": structured_data,

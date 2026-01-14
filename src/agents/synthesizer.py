@@ -63,6 +63,7 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
             "patient_state": full_patient_context
         }))
         
+        print(prompt)
         print(f"📝 Veredito: {evaluation.compliance}")
 
         return {
