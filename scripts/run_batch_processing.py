@@ -23,7 +23,7 @@ def main():
         return
     
     df = pl.read_csv(INPUT_CSV)
-    df = df[0]
+    df = df.sample(5)
     print(f"🧪 Start batch experiment with {len(df)} cases.")
 
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)

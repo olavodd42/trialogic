@@ -15,7 +15,10 @@ Process unstructured clinical narratives (Triage Notes, Nursing Assessments, Phy
     * **Absolute Prohibition on Inference**: Do not infer, guess, or impute missing values based on clinical intuition. If a variable (e.g., `acuity_level`, `systolic_bp`) is not explicitly stated, the value **MUST** be `null`.
     * Example: If the text says "Patient appears stable" but lists no vitals, all vital fields remain `null`.
 2. **Data Normalization Standards:**
-    * **Thermodynamics**: Convert all temperature readings to Celsius (`37.0`).
+    * **Thermodynamics**: Convert all temperature readings to Celsius.
+      * IF input is Fahrenheit (e.g., 98.6 F), CONVERT to Celsius (37.0 C).
+      * Formula: (F - 32) * 5/9.
+      * Example: "T 99.1" -> extract as `37.3`.
     * **Hemodynamics**: Parse Blood Pressure strings (e.g., "120/80") into distinct `sbp` (120) and `dbp` (80) integers.
     * **Pharmacology**:
         * **Admission List**: Medications active prior to ED arrival.

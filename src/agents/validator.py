@@ -57,10 +57,18 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
         acuity = vitals.acuity 
         gcs = vitals.gcs
 
-        if temp is not None and (temp <= 25.0 or temp >= 45.0):
-            msg = f"Temperature value {temp} is physiologically improbable."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
+        if temp is not None:
+            if (temp <= 25.0 or temp >= 45.0):
+                converted_temp = round((temp - 32) * 5/9, 1)
+                msg = f"Temperature {vitals.temperature} likely Fahrenheit. Auto-converted to {converted_temp} C."
+                print(f"⚠️ {msg}")
+                vitals.temperature = converted_temp
+                state.get("validation_messages", []).append(msg)
+
+            elif temp < 25 or temp > 45:
+                msg = f"Temperature value {vitals.temperature} is physiologically improbable (Celsius range 25-45)."
+                errors.append(msg)
+                messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check units."))
             
         if hr is not None and (hr < 0 or hr > 300):
             msg = f"Heart rate value {hr} is physiologically improbable."

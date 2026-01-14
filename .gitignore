@@ -41,3 +41,4 @@ Thumbs.db
 data/
 test*.py
 chroma_db/
+results/
