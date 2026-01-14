@@ -3,6 +3,7 @@ from typing import Dict, Any, cast
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import SecretStr
+from difflib import SequenceMatcher
 from dotenv import load_dotenv
 
 from src.state.agent_state import AgentState
@@ -14,6 +15,23 @@ load_dotenv()
 prompt_path = os.path.join(os.getcwd(), "prompts", "auditor_prompt.md")
 with open(prompt_path, encoding='utf-8') as f:
     AUDITOR_SYSTEM = f.read()
+
+def check_quote_fidelity(quote: str, context: str, threshold=0.8) -> bool:
+    """Verifica se a citação realmente existe no contexto (Fuzzy match)."""
+    if "Not defined" in quote or "Retrieved context insufficient" in quote:
+        return True
+        
+    # Normalização simples
+    quote_clean = " ".join(quote.lower().split())
+    context_clean = " ".join(context.lower().split())
+    
+    if quote_clean in context_clean:
+        return True
+        
+    # Se não for exato, tenta fuzzy (para lidar com pontuação/espaços)
+    match = SequenceMatcher(None, quote_clean, context_clean).find_longest_match(0, len(quote_clean), 0, len(context_clean))
+    # Se encontrou um bloco contínuo que cobre pelo menos 60% da citação
+    return match.size > len(quote_clean) * 0.6
 
 # --- NODE LOGIC ---
 def synthesizer_node(state: AgentState) -> Dict[str, Any]:
@@ -62,6 +80,15 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
             "context": retrieved_context,
             "patient_state": full_patient_context
         }))
+
+        is_faithful = check_quote_fidelity(evaluation.evidence_quote, retrieved_context or "")
+        
+        if not is_faithful:
+            print(f"🚨 HALLUCINATION CAUGHT: Quote '{evaluation.evidence_quote}' not found in context.")
+            # Penaliza o modelo ou marca como inconclusivo
+            evaluation.compliance = "Inconclusive"
+            evaluation.evidence_quote = "MODEL HALLUCINATION DETECTED: The model attempted to cite text not present in the source documents."
+            evaluation.protocol_reference = "N/A"
         
         print(prompt)
         print(f"📝 Veredito: {evaluation.compliance}")

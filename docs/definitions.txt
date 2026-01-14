@@ -1,0 +1,25 @@
+SOURCE: GLOBAL CLINICAL DEFINITIONS (GOLD STANDARD CHEAT SHEET)
+
+SECTION: HYPOTENSION AND SHOCK CRITERIA
+1. Sepsis-3 Definition of Hypotension: Mean Arterial Pressure (MAP) < 65 mmHg.
+2. Septic Shock Clinical Criteria: Persisting hypotension requiring vasopressors to maintain MAP >= 65 mmHg AND Serum Lactate level > 2 mmol/L (18 mg/dL) despite adequate volume resuscitation.
+3. NEWS2 Hypotension Scoring: 
+   - Systolic Blood Pressure (SBP) <= 90 mmHg scores +3 points (High Risk).
+   - Systolic Blood Pressure (SBP) between 91-100 mmHg scores +2 points.
+   - Systolic Blood Pressure (SBP) between 101-110 mmHg scores +1 point.
+4. qSOFA Hypotension Criteria: Systolic Blood Pressure (SBP) <= 100 mmHg.
+
+SECTION: TACHYPNEA AND RESPIRATORY CRITERIA
+1. SIRS Respiratory Criteria: Respiratory Rate > 20 breaths/min OR PaCO2 < 32 mmHg.
+2. qSOFA Respiratory Criteria: Respiratory Rate >= 22 breaths/min.
+3. NEWS2 Respiratory Scoring:
+   - Respiratory Rate <= 8 or >= 25 scores +3 points.
+   - Respiratory Rate 21-24 scores +2 points.
+
+SECTION: ALTERED MENTAL STATUS
+1. qSOFA GCS Criteria: Glasgow Coma Scale < 15.
+2. NEWS2 Consciousness: Any status other than "Alert" (e.g., Voice, Pain, Unresponsive or Confusion) scores +3 points.
+
+SECTION: FEVER AND SEPSIS SIGNS
+1. SIRS Temperature Criteria: Temperature > 38.0 C or < 36.0 C.
+2. Sepsis Definition (Sepsis-3): Life-threatening organ dysfunction caused by a dysregulated host response to infection (SOFA score change >= 2).

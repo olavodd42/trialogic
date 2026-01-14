@@ -1,38 +1,64 @@
 import os
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from pydantic import SecretStr
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-# Sobe dois níveis para chegar na raiz do projeto (ajuste conforme sua pasta)
-project_root = os.path.dirname(os.path.dirname(current_dir))
-# Define o caminho fixo na raiz
-PERSIST_DIRECTORY = os.path.join(project_root, "chroma_db")
-def load_pdf(filepath: str, category: str, source_type: str):
-    print(f"📚 Ingerindo: {filepath} como categoria '{category}'...")
+# Configuração de Diretório
+PERSIST_DIRECTORY = os.path.join(os.getcwd(), "chroma_db")
 
-    loader = PyPDFLoader(filepath)
-    docs = loader.load()
+def ingest_document(filepath: str, category: str, source_type: str):
+    """
+    Função universal de ingestão. Detecta se é PDF ou TXT e processa.
+    """
+    print(f"📚 Ingerindo: {filepath}...")
 
-    # 1. Add metadata to the docs
+    # 1. Detecção de Tipo de Arquivo
+    if filepath.endswith(".pdf"):
+        loader = PyPDFLoader(filepath)
+    elif filepath.endswith(".txt"):
+        loader = TextLoader(filepath, encoding="utf-8")
+    else:
+        print(f"❌ Formato não suportado: {filepath}")
+        return
+
+    # 2. Carregamento
+    try:
+        docs = loader.load()
+    except Exception as e:
+        print(f"❌ Erro ao ler arquivo: {e}")
+        return
+
+    # 3. Metadados (Crucial para o Filtro do RAG)
     for doc in docs:
         doc.metadata["category"] = category
         doc.metadata["source_type"] = source_type
+        # Se for o definitions.txt, damos um boost artificial na relevância via metadado (opcional)
+        if "definitions.txt" in filepath:
+            doc.metadata["priority"] = "high"
 
-    # 2. Split
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    # 4. Split (Fatiamento)
+    # Para definições, usamos chunks menores para não perder precisão
+    chunk_size = 500 if filepath.endswith(".txt") else 1000
+    
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=100)
     splits = text_splitter.split_documents(docs)
+
+    # 5. Configuração de Embeddings (Compatível com LM Studio ou OpenAI)
+    # Se você estiver usando LM Studio, certifique-se que base_url aponta para local
+    # Se estiver usando OpenAI real, remova base_url
     embedding_function = OpenAIEmbeddings(
-        base_url="http://localhost:1234/v1",  # Aponta para o LM Studio
-        api_key=SecretStr("lm-studio"),                  # Obrigatório, mas pode ser qualquer string
-        model="text-embedding-nomic-embed-text-v1.5",        # O nome deve bater com o ID no LM Studio (ou use "text-embedding-ada-002" como placeholder se der erro)
-        check_embedding_ctx_length=False      # Impede validação de token que falha localmente
+        base_url="http://localhost:1234/v1",
+        api_key=SecretStr("lm-studio"),      
+        check_embedding_ctx_length=False
     )
+
+    # 6. Indexação no ChromaDB
     vectorstore = Chroma.from_documents(
         documents=splits,
         embedding=embedding_function,
         persist_directory=PERSIST_DIRECTORY
     )
-    print(f"✅ Sucesso! {len(splits)} chunks indexados no ChromaDB.")
+    
+    print(f"✅ Sucesso! {len(splits)} chunks de '{category}' indexados.")
