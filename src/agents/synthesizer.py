@@ -30,8 +30,10 @@ def check_quote_fidelity(quote: str, context: str, threshold=0.8) -> bool:
         
     # Se não for exato, tenta fuzzy (para lidar com pontuação/espaços)
     match = SequenceMatcher(None, quote_clean, context_clean).find_longest_match(0, len(quote_clean), 0, len(context_clean))
-    # Se encontrou um bloco contínuo que cobre pelo menos 60% da citação
-    return match.size > len(quote_clean) * 0.6
+    similarity = match.size / len(quote_clean)
+    print(f"🔍 Quote Fidelity Score: {similarity:.2f} (Threshold: {threshold})")
+    
+    return similarity > threshold
 
 # --- NODE LOGIC ---
 def synthesizer_node(state: AgentState) -> Dict[str, Any]:
