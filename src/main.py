@@ -52,6 +52,17 @@ def create_workflow():
             "supervisor": "supervisor"
         }
     )
+    
+    workflow.add_conditional_edges(
+        "supervisor",
+        supervisor_router,
+        {
+            "scribe": "scribe",
+            "mathematician": "mathematician",
+            "clinical_rag": "clinical_rag",
+            "end": END
+        }
+    )
 
     # Return to supervisor
     workflow.add_conditional_edges(

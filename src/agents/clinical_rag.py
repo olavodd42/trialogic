@@ -42,9 +42,15 @@ def get_vectorstore():
     Returns:
         Chroma: The initialized Chroma vector store instance.
     """
+    embedding_function = OpenAIEmbeddings(
+        base_url="http://localhost:1234/v1",  # Aponta para o LM Studio
+        api_key=SecretStr("lm-studio"),                  # Obrigatório, mas pode ser qualquer string
+        model="text-embedding-nomic-embed-text-v1.5",        # O nome deve bater com o ID no LM Studio (ou use "text-embedding-ada-002" como placeholder se der erro)
+        check_embedding_ctx_length=False      # Impede validação de token que falha localmente
+    )
     return Chroma(
         persist_directory=PERSIST_DIRECTORY,
-        embedding_function=OpenAIEmbeddings()
+        embedding_function=embedding_function
     )
 
 # Load prompt with cross-platform path handling
@@ -81,7 +87,7 @@ def clinical_rag_node(state: AgentState) -> Dict[str, Any]:
     # Assuming 'data' is an object with 'semantics' and 'clinical' attributes (e.g., Pydantic model)
     patient_summary = json.dumps({
         "condition": data.semantics.chief_complaint if data else "Unknown",
-        "vitals": data.clinical.vitals if data else {},
+        "vitals": data.clinical.vitals.model_dump() if data else {},
         "risk": risk
     })
 
@@ -89,7 +95,7 @@ def clinical_rag_node(state: AgentState) -> Dict[str, Any]:
     llm = ChatOpenAI(
         base_url="http://127.0.0.1:1234/v1",
         api_key=SecretStr("lm-studio"),
-        model="gpt-4o-mini",
+        model="meta-llama-3.1-8b-instruct",
         temperature=0
     )
     query_msg = [
