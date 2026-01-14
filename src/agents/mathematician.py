@@ -1,3 +1,4 @@
+import os
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import SecretStr
@@ -18,6 +19,9 @@ llm = ChatOpenAI(
 )
 # Tech Lead Tip: Save the object with bind in a new variable!
 llm_with_tools = llm.bind_tools([calculate_clinical_score])
+
+with open(os.path.join(os.getcwd(), "prompts/mathematician_prompt.md")) as f:
+    system_msg = f.read()
 
 def mathematician_node(state: AgentState) -> dict:
     """
@@ -40,17 +44,15 @@ def mathematician_node(state: AgentState) -> dict:
         return {
             "risk_score_report": "No valid clinical data to calculate scores."
         }
-    
-    vitals = data.clinical.vitals
+    if hasattr(data, "clinical"):
+        if hasattr(data.clinical, "vitals"):
+          vitals = data.clinical.vitals
+        else:
+            raise AttributeError(f"{type(data.clinical)} has no attribute 'clinical'.")
+    else:
+        raise AttributeError(f"{type(data)} has no attribute 'vitals'.")
     
     # 2. Prompt Focused on ACTION (Tool Call), not Mental Calculation
-    system_msg = SystemMessage(content="""
-    You are a rigorous clinical assistant. Your only function is to calculate risk scores using the available tool.
-    DO NOT calculate anything mentally.
-    1. Analyze the provided vital signs.
-    2. Call the tool 'calculate_clinical_score' for 'MEWS' and/or 'NEWS'.
-    3. If there is sufficient data, calculate both.
-    """)
     
     # Serialize Pydantic object to JSON for the LLM
     vitals_json = vitals.model_dump_json()

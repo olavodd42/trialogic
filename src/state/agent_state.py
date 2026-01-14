@@ -42,5 +42,3 @@ class AgentState(TypedDict, total=False):
     
     next_step: Optional[str]
     plan: List[str]
-
-    final_report: str

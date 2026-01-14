@@ -56,7 +56,10 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
     if not input_data:
         return {"validation_errors": ["No input data provided."]}
 
-    input_text = input_data.raw_text
+    if hasattr(input_data, "raw_text"):
+        input_text = input_data.raw_text
+    else:
+        raise AttributeError(f"{type(input_data)} has no attribute 'raw_text'.")
     errors = state.get("validation_errors", [])
 
     messages = [
