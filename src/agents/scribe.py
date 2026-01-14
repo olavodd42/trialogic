@@ -49,7 +49,8 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
     Returns:
         dict: The updated state with the extracted structured data (or error details).
     """
-    print("--- ✍️ NODE: SCRIBE ---")
+    
+    print("\n--- ✍️ NODE: SCRIBE ---")
     
     input_data = state.get("input")
     # Handle the case where input might not be what we expect, though strict typing suggests it is InputSchema
