@@ -107,7 +107,20 @@ def clinical_rag_node(state: AgentState) -> Dict[str, Any]:
     ]
     
     # Corrected method from 'invoque' to 'invoke'
-    search_query = str(llm.invoke(query_msg).content)
+    raw_content = str(llm.invoke(query_msg).content)
+    
+    # Data cleaning: Removes Markdown headers and explanations if the model fails to follow strict constraints
+    lines = [line.strip() for line in raw_content.split('\n') if line.strip()]
+    search_query = raw_content
+    
+    for line in lines:
+        # Ignore lines that look like headers, comments or conversational filler
+        if (not line.startswith("**") and 
+            not line.startswith("##") and 
+            not line.lower().startswith("note:") and 
+            not line.lower().startswith("here is")):
+            search_query = line
+            break
 
     print(query_msg)
     print(f"[ASSISTANT]: {search_query}")

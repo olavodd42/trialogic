@@ -26,4 +26,12 @@ Maximize retrieval precision from the vector store (Medical Guidelines Database)
 
 ## OUTPUT CONSTRAINT
 
-Output **ONLY** the optimized query string. No preamble, no explanation, no quotes.
+Output **ONLY** the optimized query string. Do not output anything else. No preamble, no explanation, no markdown formatting, no quotes.
+
+**CORRECT OUTPUT EXAMPLE:**
+Hypotension management protocol septic shock guidelines refractory fluid bolus
+
+**INCORRECT OUTPUT EXAMPLE (DO NOT DO THIS):**
+**Optimized Query String**
+Hypotension management protocol septic shock guidelines refractory fluid bolus
+Note: I selected this because the patient has low blood pressure...
