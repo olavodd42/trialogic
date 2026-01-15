@@ -11,12 +11,15 @@ from src.schemas.scribe_schema import VitalsSchema
 
 load_dotenv()
 
+SEED = 42
+
 # 1. Configuração Correta do LLM com Tools
 llm = ChatOpenAI(
     base_url="http://127.0.0.1:1234/v1",
     api_key=SecretStr("lm-studio"),
     model="gpt-4o-mini",
-    temperature=0
+    temperature=0,
+    seed=SEED
 )
 # Tech Lead Tip: Save the object with bind in a new variable!
 llm_with_tools = llm.bind_tools([calculate_clinical_score])

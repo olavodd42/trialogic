@@ -11,6 +11,8 @@ from src.schemas.auditor_schema import AuditorEvaluation
 
 load_dotenv()
 
+SEED = 42
+
 # Load prompt with cross-platform path handling
 prompt_path = os.path.join(os.getcwd(), "prompts", "auditor_prompt.md")
 with open(prompt_path, encoding='utf-8') as f:
@@ -66,7 +68,8 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
         base_url="http://127.0.0.1:1234/v1",
         api_key=SecretStr("lm-studio"),
         model="gpt-4o-mini",
-        temperature=0
+        temperature=0,
+        seed=SEED
     )
     structured_llm = llm.with_structured_output(AuditorEvaluation)
 

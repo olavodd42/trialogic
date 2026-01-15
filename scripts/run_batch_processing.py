@@ -10,6 +10,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.main import create_workflow
 from src.schemas.input_schema import InputSchema
 
+SEED = 42
+
 # Caminhos
 INPUT_CSV = os.path.join(os.getcwd(), "data/gold_standard_dataset.csv") # O dataset filtrado que criamos antes
 OUTPUT_FILE = os.path.join(os.getcwd(), "results/experiment_results_v1.jsonl")
@@ -23,7 +25,7 @@ def main():
         return
     
     df = pl.read_csv(INPUT_CSV)
-    df = df.sample(5, seed=42)
+    # df = df.sample(seed=SEED)
     print(f"🧪 Start batch experiment with {len(df)} cases.")
 
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)

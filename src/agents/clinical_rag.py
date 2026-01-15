@@ -28,6 +28,8 @@ load_dotenv()
 # Configuração de Logs (Essencial para TCC e Debug)
 logger = logging.getLogger(__name__)
 
+SEED = 42
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # Sobe dois níveis para chegar na raiz do projeto (ajuste conforme sua pasta)
 project_root = os.path.dirname(os.path.dirname(current_dir))
@@ -96,7 +98,8 @@ def clinical_rag_node(state: AgentState) -> Dict[str, Any]:
         base_url="http://127.0.0.1:1234/v1",
         api_key=SecretStr("lm-studio"),
         model="meta-llama-3.1-8b-instruct",
-        temperature=0
+        temperature=0,
+        seed=SEED
     )
     query_msg = [
         SystemMessage(content=QUERY_GEN_SYSTEM),

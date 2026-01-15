@@ -14,13 +14,15 @@ load_dotenv()
 # Logger Configuration
 logger = logging.getLogger(__name__)
 
+SEED = 42
 
 # Load Model and Prompt (Global Scope = Load Once)
 llm = ChatOpenAI(
     base_url="http://127.0.0.1:1234/v1",
     api_key=SecretStr("lm-studio"),
     model="gpt-4o-mini",
-    temperature=0
+    temperature=0,
+    seed=SEED
 )
 
 scribe_model = llm.with_structured_output(ScribeSchema)
