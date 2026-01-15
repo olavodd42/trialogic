@@ -1,6 +1,18 @@
 SOURCE: GLOBAL CLINICAL DEFINITIONS (GOLD STANDARD CHEAT SHEET)
 OFFICIAL TITLE: TriaLogic Internal Protocol Registry (Based on Sepsis-3/NEWS2)
 
+SECTION: AGGREGATE SCORE INTERPRETATION (CRITICAL)
+1. NEWS2 Total Score Thresholds:
+   - A total NEWS2 score of 0-4 indicates Low Clinical Risk.
+   - A total NEWS2 score of 3 in any single parameter indicates Low-Medium Risk (Ward Response).
+   - A total NEWS2 score of 5-6 indicates Medium Clinical Risk (Urgent Response).
+   - A total NEWS2 score of 7 or more indicates High Clinical Risk (Emergency Response).
+
+2. MEWS Total Score Thresholds:
+   - A total MEWS score of 0-2 is considered physiological.
+   - A total MEWS score of 3-4 requires increased monitoring (Ward Review).
+   - A total MEWS score of 5 or more is critical (Call RRT/MET).
+   
 SECTION: HYPOTENSION AND SHOCK CRITERIA
 1. Sepsis-3 Definition of Hypotension: Mean Arterial Pressure (MAP) < 65 mmHg.
 2. Septic Shock Clinical Criteria: Persisting hypotension requiring vasopressors to maintain MAP >= 65 mmHg AND Serum Lactate level > 2 mmol/L (18 mg/dL) despite adequate volume resuscitation.
