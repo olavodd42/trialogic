@@ -36,6 +36,36 @@ except FileNotFoundError:
     # Fail-fast: System cannot start without the prompt
     raise RuntimeError(f"Critical: scribe_prompt.md not found at {prompt_path}.")
 
+def normalize_vitals(data: dict) -> dict:
+    """
+    Normalização forçada de dados vitais.
+    1. Converte Fahrenheit -> Celsius
+    2. Garante consistência Neuro (AVPU vs GCS)
+    """
+    vitals = data.get("clinical", {}).get("vitals", {})
+    
+    # --- FIX 1: TERMODINÂMICA (Fahrenheit Killer) ---
+    temp = vitals.get("temperature")
+    if temp is not None and isinstance(temp, (int, float)):
+        # Se for maior que 50, é impossível ser Celsius (seria morte)
+        if temp > 50:
+            celsius = round((temp - 32) * 5/9, 1)
+            print(f"🌡️ AUTO-FIX: Convertendo Temp {temp}F para {celsius}C")
+            vitals["temperature"] = celsius
+            
+    # --- FIX 2: NEUROCONSISTÊNCIA ---
+    # Se GCS é 15, AVPU tem de ser Alert
+    if vitals.get("gcs") == 15:
+        if vitals.get("acvpu") in ["Voice", "Pain", "Unresponsive"]:
+            vitals["acvpu"] = "Alert"
+            vitals["avpu"] = "Alert"
+            
+    # Se AVPU é Alert, ACVPU não pode ser Voice
+    if vitals.get("avpu") == "Alert" and vitals.get("acvpu") == "Voice":
+        vitals["acvpu"] = "Alert"
+
+    return data
+
 def enforce_neuro_consistency(data: dict) -> dict:
     """Corrige alucinações de ACVPU baseadas em GCS e AVPU."""
     vitals = data.get("clinical", {}).get("vitals", {})
@@ -99,12 +129,15 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
         response = scribe_model.invoke(messages)
 
         # Convert to dict if necessary (handles both Pydantic models and raw dicts)
-        if hasattr(response, "dict"):
-            structured_data = response.dict()
-        elif hasattr(response, "model_dump"):
-            structured_data = response.model_dump()
-        else:
-            structured_data = response
+        # if hasattr(response, "dict"):
+        #     structured_data = response.dict()
+        # elif hasattr(response, "model_dump"):
+        #     structured_data = response.model_dump()
+        # else:
+        #     structured_data = response
+
+        structured_data = response.model_dump()
+        structured_data = normalize_vitals(structured_data)
 
         structured_data = enforce_neuro_consistency(structured_data)
         
