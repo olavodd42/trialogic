@@ -5,7 +5,7 @@ SEED = 42 # Seed garante reprodutibilidade (CRUCIAL para ciência)
 
 # 1. Carregue o Dataset Filtrado (que você já tem)
 # Supondo que você salvou como 'mimic_iv_ed_filtered.csv'
-df = pl.read_csv(os.path.join(os.getcwd(), "data/discharge.csv")) # ou o seu arquivo filtrado
+df = pl.read_csv(os.path.join(os.getcwd(), "data/discharge_filtered.csv")) # ou o seu arquivo filtrado
 
 # 2. Defina Palavras-chave para as Coortes (Heurística simples para seleção)
 # Obs: No mundo ideal usaríamos códigos CID-10 (ICD-10), mas busca textual serve para selecionar notas.
