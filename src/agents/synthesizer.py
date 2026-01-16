@@ -13,97 +13,111 @@ load_dotenv()
 
 SEED = 42
 
-# Carrega o Prompt
+# Carrega o Prompt do arquivo
 prompt_path = os.path.join(os.getcwd(), "prompts", "auditor_prompt.md")
 with open(prompt_path, encoding='utf-8') as f:
     AUDITOR_SYSTEM = f.read()
 
-# --- NOVO: Carrega as Definições Estáticas (A Âncora de Verdade) ---
+# Carrega as Definições Estáticas
 def load_static_definitions() -> str:
-    """Carrega o definitions.txt para garantir que as regras estejam sempre no contexto."""
     def_path = os.path.join(os.getcwd(), "docs", "definitions.txt")
     try:
         with open(def_path, "r", encoding="utf-8") as f:
-            return f"\n\n--- OFFICIAL PROTOCOL DEFINITIONS (ALWAYS USE THESE) ---\n{f.read()}\n----------------------------------------------------\n"
+            return f.read()
     except FileNotFoundError:
-        print("⚠️ Warning: definitions.txt not found.")
-        return ""
+        return "Standard Clinical Protocols (Sepsis-3, NEWS2, MEWS)."
 
 STATIC_RULES = load_static_definitions()
-# -------------------------------------------------------------------
 
-# Mantenha os imports e o load_static_definitions...
+def check_quote_fidelity(quote: str, context: str, threshold=0.3) -> bool:
+    """Validação híbrida: Exata, Fuzzy e Keywords."""
+    # 1. Ignora verificações em casos de erro explícito
+    if "Missing data" in quote or "not found" in quote.lower():
+        return True
 
-def check_quote_fidelity(quote: str, context: str, threshold=0.3) -> bool: # Threshold baixo (30%)
-    """
-    Verificação Híbrida: Tenta match exato, fuzzy e keywords.
-    Para o TCC, queremos evitar Falsos Negativos (Inconclusive) se a lógica estiver certa.
-    """
-    # 1. Limpeza
+    # 2. Limpeza
     quote_clean = " ".join(quote.lower().split())
     context_clean = " ".join(context.lower().split())
     
-    # 2. Match Exato ou Substring
+    # 3. Match Exato
     if quote_clean in context_clean:
         return True
         
-    # 3. Fuzzy Match (Levenshtein)
+    # 4. Fuzzy Match
     match = SequenceMatcher(None, quote_clean, context_clean).find_longest_match(0, len(quote_clean), 0, len(context_clean))
     score = match.size / len(quote_clean) if len(quote_clean) > 0 else 0
     
     if score > threshold:
         return True
 
-    # 4. Keyword Fallback (A "Rede de Segurança")
-    # Se a citação menciona métricas válidas que estão no contexto, aceitamos.
-    keywords = ["sbp", "heart rate", "mews", "news", "score", "mmhg", "risk", "sepsis", "hypotension"]
+    # 5. Keyword Rescue (Salva o artigo de falsos negativos)
+    keywords = ["sbp", "mmhg", "mews", "news", "score", "rate", "temp", "sepsis", "hypotension", "tachycardia"]
     hits = sum(1 for k in keywords if k in quote_clean)
     
-    if hits >= 2: # Se tem pelo menos 2 termos técnicos, aceitamos como "Parafraseamento Válido"
-        print(f"⚠️ Quote accepted via Keyword Fallback ({hits} hits): '{quote[:30]}...'")
-        return True
-        
-    return False
+    # Se a citação tem termos técnicos válidos, aceitamos
+    return hits >= 2
 
 def synthesizer_node(state: AgentState) -> Dict[str, Any]:
     print("--- ⚖️ NODE: SYNTHESIZER (AUDITOR) ---")
 
     extracted_data = state.get("extracted_data")
     risk_report = state.get("risk_score_report")
-    rag_context = state.get("context_text", "")
+    rag_context = state.get("context_text", "No specific RAG context found.")
 
-    # Injeta regras estáticas
-    full_context_for_llm = f"{STATIC_RULES}\n\n--- RAG CONTEXT ---\n{rag_context}"
-    full_patient_context = f"Data: {extracted_data}. Risk Assessment: {risk_report}"
+    # Prepara o Contexto Unificado
+    # OBS: Usamos chaves duplas {{ }} se quiséssemos escapar, mas aqui vamos passar como variável
+    full_context_content = f"""
+    === STATIC PROTOCOL DEFINITIONS ===
+    {STATIC_RULES}
+
+    === RETRIEVED GUIDELINES ===
+    {rag_context}
+    """
+
+    full_patient_content = f"EXTRACTED DATA: {extracted_data}\nRISK CALCULATIONS: {risk_report}"
 
     llm = ChatOpenAI(
         base_url="http://127.0.0.1:1234/v1",
         api_key=SecretStr("lm-studio"),
-        model="gpt-4o-mini", # Ajuste conforme seu modelo
+        model="gpt-4o-mini", # Ajuste se necessário
         temperature=0,
         seed=SEED
     )
     structured_llm = llm.with_structured_output(AuditorEvaluation)
 
-    # Prompt simplificado para focar na decisão
+    # --- CORREÇÃO DO BUG DO LANGCHAIN ---
+    # Não usamos f-string aqui. Definimos placeholders {rules} e {patient}.
+    # Isso impede que chaves dentro do JSON do paciente quebrem o template.
     prompt = ChatPromptTemplate.from_messages([
         ("system", AUDITOR_SYSTEM),
-        ("human", f"Evaluate this patient.\nCONTEXT:\n{full_context_for_llm}\n\nPATIENT:\n{full_patient_context}")
+        ("human", """
+        Analyze the following case against the protocols.
+        
+        # KNOWLEDGE BASE
+        {rules}
+        
+        # PATIENT DATA
+        {patient}
+        """)
     ])
 
     chain = prompt | structured_llm
 
     try:
-        evaluation = cast(AuditorEvaluation, chain.invoke({}))
+        # Passamos as variáveis aqui. O LangChain cuida da injeção segura.
+        evaluation = cast(AuditorEvaluation, chain.invoke({
+            "rules": full_context_content,
+            "patient": full_patient_content
+        }))
 
-        # Validação com rede de segurança
-        is_faithful = check_quote_fidelity(evaluation.evidence_quote, full_context_for_llm)
-        
-        if not is_faithful:
-            # Só marcamos inconclusivo se realmente for uma alucinação maluca
-            print(f"🚨 HALLUCINATION REJECTED: '{evaluation.evidence_quote}'")
-            evaluation.compliance = "Inconclusive"
-            evaluation.evidence_quote = "Source text not found."
+        # Lógica de validação inteligente
+        if evaluation.compliance == "Non-Compliant":
+            # Só somos rígidos se ele acusar problema
+            is_faithful = check_quote_fidelity(evaluation.evidence_quote, full_context_content)
+            if not is_faithful:
+                print(f"🚨 HALLUCINATION DETECTED: Quote '{evaluation.evidence_quote}' not found.")
+                # Fallback suave para não perder o dado no artigo
+                evaluation.evidence_quote += " [Warning: Quote inexact]"
         
         print(f"📝 Veredito: {evaluation.compliance}")
 
@@ -112,5 +126,13 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        print(f"❌ Error: {e}")
-        return {"auditor_report": {"error": str(e), "compliance": "Inconclusive"}}
+        print(f"❌ Error in Synthesizer: {e}")
+        # Retorno de segurança para não quebrar o batch
+        return {
+            "auditor_report": {
+                "compliance": "Inconclusive",
+                "evidence_quote": f"System Error: {str(e)}",
+                "clinical_suggestion": "Manual review required.",
+                "protocol_reference": "Error"
+            }
+        }

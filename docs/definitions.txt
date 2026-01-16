@@ -12,11 +12,27 @@ SECTION: AGGREGATE SCORE INTERPRETATION (CRITICAL)
    - A total MEWS score of 0-2 is considered physiological.
    - A total MEWS score of 3-4 requires increased monitoring (Ward Review).
    - A total MEWS score of 5 or more is critical (Call RRT/MET).
-   
+
+SECTION: NORMAL PHYSIOLOGICAL RANGES (BASELINE)
+1. Heart Rate: 51-90 bpm is considered normal (Score 0).
+2. Respiratory Rate: 12-20 breaths/min is considered normal (Score 0).
+3. Systolic BP: 111-219 mmHg is considered normal (Score 0).
+4. Oxygen Saturation: >= 96% on air is considered normal (Score 0).
+5. Temperature: 36.1-38.0 C is considered normal (Score 0).
+
+SECTION: HEART RATE CRITERIA (TACHYCARDIA/BRADYCARDIA)
+1. SIRS Heart Rate Criteria: Heart Rate > 90 beats/min.
+2. NEWS2 Heart Rate Scoring:
+   - Heart Rate <= 40 scores +3 points (Severe Bradycardia).
+   - Heart Rate 41-50 scores +1 point.
+   - Heart Rate 91-110 scores +1 point.
+   - Heart Rate 111-130 scores +2 points.
+   - Heart Rate >= 131 scores +3 points (Severe Tachycardia).
+
 SECTION: HYPOTENSION AND SHOCK CRITERIA
 1. Sepsis-3 Definition of Hypotension: Mean Arterial Pressure (MAP) < 65 mmHg.
 2. Septic Shock Clinical Criteria: Persisting hypotension requiring vasopressors to maintain MAP >= 65 mmHg AND Serum Lactate level > 2 mmol/L (18 mg/dL) despite adequate volume resuscitation.
-3. NEWS2 Hypotension Scoring: 
+3. NEWS2 Hypotension Scoring (Systolic BP): 
    - Systolic Blood Pressure (SBP) <= 90 mmHg scores +3 points (High Risk).
    - Systolic Blood Pressure (SBP) between 91-100 mmHg scores +2 points.
    - Systolic Blood Pressure (SBP) between 101-110 mmHg scores +1 point.
@@ -26,8 +42,18 @@ SECTION: TACHYPNEA AND RESPIRATORY CRITERIA
 1. SIRS Respiratory Criteria: Respiratory Rate > 20 breaths/min OR PaCO2 < 32 mmHg.
 2. qSOFA Respiratory Criteria: Respiratory Rate >= 22 breaths/min.
 3. NEWS2 Respiratory Scoring:
-   - Respiratory Rate <= 8 or >= 25 scores +3 points.
+   - Respiratory Rate <= 8 scores +3 points.
+   - Respiratory Rate 9-11 scores +1 point.
    - Respiratory Rate 21-24 scores +2 points.
+   - Respiratory Rate >= 25 scores +3 points.
+
+SECTION: OXYGENATION AND SATURATION CRITERIA
+1. NEWS2 Oxygen Saturation Scoring (Scale 1):
+   - SpO2 <= 91% scores +3 points (Critical Hypoxia).
+   - SpO2 92-93% scores +2 points.
+   - SpO2 94-95% scores +1 point.
+2. NEWS2 Supplemental Oxygen:
+   - Any use of Supplemental Oxygen (Yes) scores +2 points.
 
 SECTION: ALTERED MENTAL STATUS
 1. qSOFA GCS Criteria: Glasgow Coma Scale < 15.
@@ -35,4 +61,9 @@ SECTION: ALTERED MENTAL STATUS
 
 SECTION: FEVER AND SEPSIS SIGNS
 1. SIRS Temperature Criteria: Temperature > 38.0 C or < 36.0 C.
-2. Sepsis Definition (Sepsis-3): Life-threatening organ dysfunction caused by a dysregulated host response to infection (SOFA score change >= 2).
+2. NEWS2 Temperature Scoring:
+   - Temperature <= 35.0 scores +3 points.
+   - Temperature 35.1-36.0 scores +1 point.
+   - Temperature 38.1-39.0 scores +1 point.
+   - Temperature >= 39.1 scores +2 points.
+3. Sepsis Definition (Sepsis-3): Life-threatening organ dysfunction caused by a dysregulated host response to infection (SOFA score change >= 2).
