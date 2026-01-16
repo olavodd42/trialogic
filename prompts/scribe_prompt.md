@@ -24,6 +24,12 @@ Process unstructured clinical narratives (Triage Notes, Nursing Assessments, Phy
         * **Admission List**: Medications active prior to ED arrival.
         * **Discharge List**: Medications prescribed at discharge.
         * **Delta Logic**: You must explicitly categorize changes: `NEW_START`, `STOPPED`, `DOSE_INCREASE`,`DOSE_DECREASE` or `UNCHANGED`.
+    * **Neurological Consistency (CRITICAL):**
+      * **AVPU vs ACVPU**: These must be consistent.
+      * IF `avpu` is "Alert", THEN `acvpu` MUST be either "Alert" or "Confusion".
+      * **NEVER** output `acvpu: "Voice"` if the patient is "Alert" or has GCS 15.
+      * "Voice" means the patient is **somnolent** and ONLY wakes up when shouted at.
+      * If the text says "responds to voice" but implies following commands easily, code as "Alert".
 
 3. **Semantic Summarization**:
     * Synthesize the History of Present Illness (HPI) and Hospital Course into a concise, professional summary (max 3 sentences) suitable for rapid physician review.

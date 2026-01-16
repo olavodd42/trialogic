@@ -36,6 +36,24 @@ except FileNotFoundError:
     # Fail-fast: System cannot start without the prompt
     raise RuntimeError(f"Critical: scribe_prompt.md not found at {prompt_path}.")
 
+def enforce_neuro_consistency(data: dict) -> dict:
+    """Corrige alucinações de ACVPU baseadas em GCS e AVPU."""
+    vitals = data.get("clinical", {}).get("vitals", {})
+    
+    # Se GCS é 15 (Máximo), o paciente NUNCA pode ser 'Voice' ou 'Pain'
+    if vitals.get("gcs") == 15:
+        if vitals.get("acvpu") in ["Voice", "Pain", "Unresponsive"]:
+            print(f"🔧 AUTO-FIX: Corrigindo ACVPU de '{vitals['acvpu']}' para 'Alert' baseada em GCS 15.")
+            vitals["acvpu"] = "Alert"
+            vitals["avpu"] = "Alert"
+
+    # Se AVPU é 'Alert', ACVPU não pode ser 'Voice'
+    if vitals.get("avpu") == "Alert" and vitals.get("acvpu") == "Voice":
+        print(f"🔧 AUTO-FIX: Corrigindo inconsistência AVPU(Alert) vs ACVPU(Voice).")
+        vitals["acvpu"] = "Alert"
+        
+    return data
+
 def scribe_node(state: AgentState) -> Dict[str, Any]:
     """
     The 'Scribe' Node: First step in the processing pipeline. 
@@ -79,6 +97,7 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
         
         # LLM Call - returns Pydantic object
         structured_data = scribe_model.invoke(messages)
+        structured_data = enforce_neuro_consistency(structured_data.dict())
         
         logger.info(f"Extraction success for ID {input_data.subject_id}")
         print(f"{messages}")
