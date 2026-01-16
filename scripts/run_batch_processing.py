@@ -34,6 +34,7 @@ def main():
     with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
         for row in tqdm(df.iter_rows(named=True), total=len(df), desc="Processing Agents"):
             subject_id = row['subject_id']
+            hadm_id = row.get('hadm_id')
             text = row['text']
 
             if len(text) < 50:
@@ -41,7 +42,7 @@ def main():
 
             input_obj = InputSchema(
                 subject_id=subject_id,
-                hadm_id=row.get('hadm_id'),
+                hadm_id=hadm_id,
                 raw_text=text
             )
 
@@ -61,6 +62,7 @@ def main():
 
                 result_record = {
                     "subject_id": subject_id,
+                    "hadm_id": hadm_id,
                     "cohort": row.get('cohort_type', 'unknown'),
                     "risk_score": final_state.get("risk_score_report"),
                     "auditor_verdict": final_state.get("auditor_report"),
@@ -73,7 +75,7 @@ def main():
             except Exception as e:
                 print(f"\nEror on ID {subject_id}: {e}")
                 # Logar erro no arquivo também para não perder rastro
-                error_record = {"subject_id": subject_id, "error": str(e)}
+                error_record = {"subject_id": subject_id, "hadm_id": hadm_id, "error": str(e)}
                 f.write(json.dumps(error_record) + "\n")
 
     print(f"\n✅ Finished experiment. Results saved in {OUTPUT_FILE}")
