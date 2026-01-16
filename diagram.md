@@ -21,12 +21,13 @@ graph TD
     Supervisor -- "No Data" --> Scribe
     Supervisor -- "Has Data, No Risk" --> Mathematician
     Supervisor -- "Has Risk, No Audit" --> Auditor
-    Supervisor -- "All Done" --> End((FIM)):::endnode
+    Supervisor -- "All Done" --> End((END)):::endnode
 
     %% O Loop de Validação (A única aresta que foge do Supervisor)
     Scribe --> Validator
-    Validator -- "❌ Error Found" --> Scribe
+    Validator -- "❌ Error Found, RETRIES <=3" --> Scribe
     Validator -- "✅ Valid" --> Supervisor
+    Validator -- "❌ Error Found, RETRIES > 3" --> Supervisor
 
     %% Retornos ao Hub
     Mathematician --> Supervisor

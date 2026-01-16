@@ -51,6 +51,7 @@ def supervisor_router(state: AgentState) -> Literal["scribe", "mathematician", "
 
     # 1. Extraction Phase
     if not extracted and attempts < 3:
+        print("DEBUG AGENT: Routing to scribe (No extraction)")
         return "scribe"
     
     # 2. Validation Retry Logic
@@ -64,12 +65,16 @@ def supervisor_router(state: AgentState) -> Literal["scribe", "mathematician", "
 
     # 3. Calculation Phase
     if extracted and not risk:
+        print("DEBUG AGENT: Routing to mathematician")
         return "mathematician"
     
     if risk and not context:
+        print("DEBUG AGENT: Routing to clinical_rag")
         return "clinical_rag"
     
     if audit:
+        print("DEBUG AGENT: Routing to END (Audit complete)")
         return "END"
     
+    print("DEBUG AGENT: Routing to END (Default)")
     return "END"

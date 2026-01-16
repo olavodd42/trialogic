@@ -17,7 +17,7 @@ SEED = 42
 llm = ChatOpenAI(
     base_url="http://127.0.0.1:1234/v1",
     api_key=SecretStr("lm-studio"),
-    model="gpt-4o-mini",
+    model="meta-llama-3.1-8b-instruct",
     temperature=0,
     seed=SEED
 )
@@ -41,6 +41,7 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
     Returns:
         dict: Partial state update containing the risk score report.
     """
+    print("--- 🧮 NODE: MATHEMATICIAN ---")
     
     # Recover data from State (Scribe Output)
     data = state.get("extracted_data")
@@ -73,9 +74,9 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
     user_msg = HumanMessage(content=f"Patient Vital Signs: {vitals_json}")
     
     # 3. Model Invocation
-    response = llm_with_tools.invoke([system_msg, user_msg])
     print(system_msg)
     print(user_msg)
+    response = llm_with_tools.invoke([system_msg, user_msg])
     print(f"[ASSISTANT]: {response}")
     
     # 4. Tool Execution (Manual Execution for full control)

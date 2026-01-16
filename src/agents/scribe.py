@@ -20,7 +20,7 @@ SEED = 42
 llm = ChatOpenAI(
     base_url="http://127.0.0.1:1234/v1",
     api_key=SecretStr("lm-studio"),
-    model="gpt-4o-mini",
+    model="meta-llama-3.1-8b-instruct",
     temperature=0,
     seed=SEED
 )

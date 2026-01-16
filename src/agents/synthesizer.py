@@ -79,7 +79,7 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
     llm = ChatOpenAI(
         base_url="http://127.0.0.1:1234/v1",
         api_key=SecretStr("lm-studio"),
-        model="gpt-4o-mini", # Ajuste se necessário
+        model="meta-llama-3.1-8b-instruct", # Ajuste se necessário
         temperature=0,
         seed=SEED
     )
