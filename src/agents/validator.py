@@ -36,6 +36,13 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
 
     data = state.get("extracted_data")
     
+    # Ensure data is a Pydantic object for dot notation access
+    if isinstance(data, dict):
+        try:
+            data = ScribeSchema(**data)
+        except Exception as e:
+            return {"validation_errors": [f"Schema Validation Error: {e}"]}
+
     # Initialize error containers
     errors: List[str] = []
     messages: List[HumanMessage] = []

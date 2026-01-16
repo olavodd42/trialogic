@@ -96,8 +96,17 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
     try:
         
         # LLM Call - returns Pydantic object
-        structured_data = scribe_model.invoke(messages)
-        structured_data = enforce_neuro_consistency(structured_data.dict())
+        response = scribe_model.invoke(messages)
+
+        # Convert to dict if necessary (handles both Pydantic models and raw dicts)
+        if hasattr(response, "dict"):
+            structured_data = response.dict()
+        elif hasattr(response, "model_dump"):
+            structured_data = response.model_dump()
+        else:
+            structured_data = response
+
+        structured_data = enforce_neuro_consistency(structured_data)
         
         logger.info(f"Extraction success for ID {input_data.subject_id}")
         print(f"{messages}")

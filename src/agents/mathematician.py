@@ -7,7 +7,7 @@ from typing import Dict, Any
 
 from src.state.agent_state import AgentState
 from src.tools.calculator import calculate_clinical_score
-from src.schemas.scribe_schema import VitalsSchema
+from src.schemas.scribe_schema import VitalsSchema, ScribeSchema
 
 load_dotenv()
 
@@ -44,6 +44,15 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
     
     # Recover data from State (Scribe Output)
     data = state.get("extracted_data")
+    
+    # Ensure data is Pydantic model
+    if isinstance(data, dict):
+        try:
+            data = ScribeSchema(**data)
+        except Exception:
+            # If conversion fails, likely missing data, let the next check handle or return error
+            pass
+
     if not data or not data.clinical or not data.clinical.vitals:
         return {
             "risk_score_report": "No valid clinical data to calculate scores."

@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 import logging
 
 from src.state.agent_state import AgentState
+from src.schemas.scribe_schema import ScribeSchema
 
 load_dotenv()
 
@@ -83,6 +84,15 @@ def clinical_rag_node(state: AgentState) -> Dict[str, Any]:
 
     # 1. Recover data from previous nodes
     data = state.get("extracted_data")
+    
+    # Ensure data is Pydantic model
+    if isinstance(data, dict):
+        try:
+            data = ScribeSchema(**data)
+        except Exception as e:
+            print(f"⚠️ [RAG] Data schema error: {e}")
+            return {"search_query": "Error in data schema", "context_text": ""}
+
     risk = state.get("risk_score_report")
 
     # 2. Prepare context for query generation
