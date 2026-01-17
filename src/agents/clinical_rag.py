@@ -30,7 +30,7 @@ SEED = 42
 # --- CONFIGURAÇÃO DE DIRETÓRIOS ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
-PERSIST_DIRECTORY = os.path.join(project_root, "chroma_db")
+PERSIST_DIRECTORY = os.path.join(os.getcwd(), "chroma_db")
 
 # --- PROMPT LOADING ---
 prompt_path = os.path.join(os.getcwd(), "prompts", "rag_prompt.md")
@@ -63,7 +63,7 @@ def get_vectorstore():
         vectorstore = Chroma(
             persist_directory=PERSIST_DIRECTORY,
             embedding_function=embeddings,
-            collection_name="clinical_guidelines"
+            collection_name="langchain"
         )
         logger.info("VectorStore initialized successfully.")
         return vectorstore
