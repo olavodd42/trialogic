@@ -1,6 +1,6 @@
 import os
 from typing import Dict, Any, cast
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import SecretStr
 from difflib import SequenceMatcher
@@ -76,10 +76,9 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
 
     full_patient_content = f"EXTRACTED DATA: {extracted_data}\nRISK CALCULATIONS: {risk_report}"
 
-    llm = ChatOpenAI(
-        base_url="http://127.0.0.1:1234/v1",
-        api_key=SecretStr("lm-studio"),
-        model="meta-llama-3.1-8b-instruct", # Ajuste se necessário
+    llm = ChatOllama(
+        base_url="http://localhost:11434",
+        model="llama3.1",
         temperature=0,
         seed=SEED
     )

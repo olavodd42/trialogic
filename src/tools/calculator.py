@@ -221,26 +221,26 @@ class VitalSignCalculator:
         score += s; details['resprate'] = s
 
         # 4. Frequência Cardíaca (MEWS)
-        if hr < 40: s = 2
-        elif 40 <= hr <= 50: s = 1
+        if hr <= 40: s = 2
+        elif 40 < hr <= 50: s = 1
         elif 51 <= hr <= 100: s = 0
         elif 101 <= hr <= 110: s = 1
-        elif 111 <= hr <= 129: s = 2
+        elif 111 <= hr <= 120: s = 2
         else: s = 3
         score += s; details['heartrate'] = s
 
         # 5. Pressão Sistólica (MEWS)
-        if sbp < 70: s = 3
-        elif 70 <= sbp <= 80: s = 2
+        if sbp <= 70: s = 3
+        elif 71 <= sbp <= 80: s = 2
         elif 81 <= sbp <= 100: s = 1
         elif 101 <= sbp <= 199: s = 0
         else: s = 2 # >= 200
         score += s; details['sbp'] = s
 
         # 6. Temperatura (MEWS)
-        if temp < 35.0: s = 2
-        elif 35.0 <= temp <= 38.4: s = 0 # Note: MEWS geralmente corta em 38.5
-        else: s = 2 # >= 38.5
+        if temp <= 35.0: s = 2
+        elif 35.0 < temp <= 37.8: s = 0 # Note: MEWS geralmente corta em 38.5
+        else: s = 2 # > 37.
         score += s; details['temperature'] = s
 
 

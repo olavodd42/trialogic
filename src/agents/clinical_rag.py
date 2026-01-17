@@ -14,7 +14,7 @@ from functools import lru_cache
 from pydantic import SecretStr
 
 # Imports seguros do LangChain
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.messages import SystemMessage, HumanMessage
 from dotenv import load_dotenv
@@ -50,12 +50,9 @@ def get_vectorstore():
     """
     print(f"DEBUG: Connecting to VectorStore at: {PERSIST_DIRECTORY}")
     
-    embeddings = OpenAIEmbeddings(
-        base_url="http://127.0.0.1:1234/v1",
-        api_key=SecretStr("lm-studio"),
-        check_embedding_ctx_length=False,
-        timeout=20.0,
-        max_retries=1
+    embeddings = OllamaEmbeddings(
+        base_url="http://localhost:11434",
+        model="nomic-embed-text",
     )
 
     try:
@@ -71,16 +68,11 @@ def get_vectorstore():
         raise e
 
 # --- MODELO DE QUERY (ULTRA OTIMIZADO) ---
-query_llm = ChatOpenAI(
-    base_url="http://127.0.0.1:1234/v1",
-    api_key=SecretStr("lm-studio"),
-    model="meta-llama-3.1-8b-instruct",
+query_llm = ChatOllama(
+    base_url="http://localhost:11434",
+    model="llama3.1",
     temperature=0,
     seed=SEED,
-    timeout=300.0, # Timeout explícito
-    max_completion_tokens=60,
-    # model_kwargs={"max_tokens": 60},      # FORÇA resposta curta para ser rápida
-    max_retries=1
 )
 
 def get_smart_fallback_query(risk_analysis: Dict, vitals: Dict) -> str:

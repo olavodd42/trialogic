@@ -11,3 +11,4 @@ psycopg2-binary
 chromadb
 pypdf
 langchain-chroma
+langchain-ollama

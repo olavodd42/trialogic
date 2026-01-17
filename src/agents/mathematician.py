@@ -2,7 +2,7 @@ import os
 import logging
 import json
 from typing import Dict, Any
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import SecretStr
 from dotenv import load_dotenv
@@ -21,10 +21,9 @@ logger = logging.getLogger(__name__)
 SEED = 42
 
 # 1. Configuração do LLM (Sem bind_tools!)
-llm = ChatOpenAI(
-    base_url="http://127.0.0.1:1234/v1",
-    api_key=SecretStr("lm-studio"),
-    model="meta-llama-3.1-8b-instruct",
+llm = ChatOllama(
+    base_url="http://localhost:11434",
+    model="llama3.1",
     temperature=0,
     seed=SEED
 )

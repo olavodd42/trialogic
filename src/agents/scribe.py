@@ -1,7 +1,8 @@
 import os
+import sys
 import logging
 from typing import Dict, Any
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import SecretStr
 
@@ -17,13 +18,13 @@ logger = logging.getLogger(__name__)
 SEED = 42
 
 # Load Model and Prompt (Global Scope = Load Once)
-llm = ChatOpenAI(
-    base_url="http://127.0.0.1:1234/v1",
-    api_key=SecretStr("lm-studio"),
-    model="meta-llama-3.1-8b-instruct",
+llm = ChatOllama(
+    base_url="http://localhost:11434",
+    model="llama3.1",
     temperature=0,
-    seed=SEED
+    seed=SEED,
 )
+
 
 scribe_model = llm.with_structured_output(ScribeSchema)
 
@@ -101,6 +102,7 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
     """
     
     print("\n--- ✍️ NODE: SCRIBE ---")
+    sys.stdout.flush()
     
     input_data = state.get("input")
     # Handle the case where input might not be what we expect, though strict typing suggests it is InputSchema
@@ -124,8 +126,11 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
         messages.append(HumanMessage(content=error_msg))
 
     try:
+        print(f"⏳ Calling LLM for Extraction (Input Size: {len(input_text)} chars)...")
+        sys.stdout.flush()
         
         # LLM Call - returns Pydantic object
+        # Reduced timeout to 60s to fail fast if stuck
         response = scribe_model.invoke(messages)
 
         # Convert to dict if necessary (handles both Pydantic models and raw dicts)
