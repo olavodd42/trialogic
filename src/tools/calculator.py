@@ -1,286 +1,175 @@
+import logging
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
-from langchain_core.tools import tool
+from pydantic import BaseModel
 from src.schemas.scribe_schema import VitalsSchema
-from src.schemas.mathematician_schema import ScoreCapability
 
-# --- Schemas Auxiliares para Auditoria ---
+logger = logging.getLogger(__name__)
+
 class ScoreBreakdown(BaseModel):
     """
     Schema representing the detailed result of a clinical score calculation.
-    
-    Attributes:
-        total_score (int): The final calculated score.
-        breakdown (Dict[str, int]): A mapping of each vital sign component to its individual sub-score.
-        assumptions_used (List[str]): A list of assumptions made during calculation due to missing data.
     """
     total_score: int
-    breakdown: Dict[str, int]  # Ex: {"resprate": 3, "sbp": 0}
+    breakdown: Dict[str, int]
     assumptions_used: List[str]
+    is_estimate: bool = False
 
-# --- Refatoração da Lógica de Cálculo ---
 class VitalSignCalculator:
     """
-    Utility class encapsulating the logic for safe retrieval of values and deterministic calculation 
-    of clinical scores like NEWS and MEWS.
+    Utility class for deterministic calculation of clinical scores (NEWS/MEWS).
+    Implements 'Imputation of Normalcy' pattern: missing values default to 0 (Normal).
     """
 
     @staticmethod
-    def _safe_get(value: Optional[int | float], default: int | float) -> int | float:
-        """Helper ensuring safe comparison/operations by providing a default value if the input is None."""
-        return value if value is not None else default
+    def _safe_get(value: Optional[int | float]) -> Optional[int | float]:
+        """Helper ensuring safe retrieval."""
+        return value
 
     @staticmethod
-    def check_capability(vitals: 'VitalsSchema', score_name: str) -> 'ScoreCapability':
-        """
-        Verifies if the necessary vital signs are available to calculate the specified score.
-        Identifies missing fields and makes standard clinical assumptions for missing neurological or oxygen data if applicable.
+    def calculate_news(vitals: 'VitalsSchema') -> ScoreBreakdown:
+        score = 0
+        breakdown = {}
+        missing_fields = []
+
+        # Helper lambda for concise logic
+        # Se valor é None, pontos = 0, adiciona a missing
+        def get_points(val, logic_func, field_name):
+            if val is None:
+                missing_fields.append(field_name)
+                return 0
+            return logic_func(val)
+
+        # 1. Respiration Rate
+        rr_points = get_points(vitals.resprate, lambda x: 3 if x <= 8 or x >= 25 else (2 if x >= 21 else (1 if x <= 11 else 0)), "resprate")
+        score += rr_points
+        breakdown["resprate"] = rr_points
+
+        # 2. O2 Saturation
+        spo2_points = get_points(vitals.o2sat, lambda x: 3 if x <= 91 else (2 if x <= 93 else (1 if x <= 95 else 0)), "o2sat")
+        score += spo2_points
+        breakdown["o2sat"] = spo2_points
+
+        # 3. Supplemental Oxygen (Boolean/String handling)
+        supp_o2 = vitals.supplemental_oxygen
+        if supp_o2 is None:
+            supp_o2_points = 0
+        elif str(supp_o2).lower() in ['true', 'yes', 'sim', '1']:
+            supp_o2_points = 2
+        else:
+            supp_o2_points = 0
+        score += supp_o2_points
+        breakdown["supplemental_oxygen"] = supp_o2_points
+
+        # 4. Temperature
+        temp_points = get_points(vitals.temperature, lambda x: 3 if x <= 35.0 else (1 if x <= 36.0 or x >= 38.1 else (2 if x >= 39.1 else 0)), "temperature")
+        score += temp_points
+        breakdown["temperature"] = temp_points
+
+        # 5. Systolic BP
+        sbp_points = get_points(vitals.sbp, lambda x: 3 if x <= 90 else (2 if x <= 100 else (1 if x <= 110 else 0)), "sbp")
+        score += sbp_points
+        breakdown["sbp"] = sbp_points
+
+        # 6. Heart Rate
+        hr_points = get_points(vitals.heartrate, lambda x: 3 if x <= 40 or x >= 131 else (2 if x >= 111 else (1 if x <= 50 or x >= 91 else 0)), "heartrate")
+        score += hr_points
+        breakdown["heartrate"] = hr_points
+
+        # 7. AVPU/Consciousness
+        # Simplification: Anything not 'Alert' or GCS < 15 is 3 points
+        points = 0
+        avpu = str(vitals.avpu).lower() if vitals.avpu else ""
+        gcs = vitals.gcs
+        if "alert" in avpu or (gcs == 15):
+            points = 0
+        elif avpu in ["verbal", "pain", "unresponsive"] or (gcs is not None and gcs < 15):
+            points = 3
+        elif not avpu and gcs is None:
+            missing_fields.append("consciousness")
         
-        Args:
-            vitals (VitalsSchema): The patient's extracted vital signs.
-            score_name (str): The name of the score to check (e.g., "NEWS", "MEWS").
-            
-        Returns:
-            ScoreCapability: An object indicating if calculation is possible, what is missing, and what assumptions were made.
-        """
-        # 1. Definição do que é obrigatório
-        required_fields = {
-            "resprate": vitals.resprate,
-            "heartrate": vitals.heartrate,
-            "sbp": vitals.sbp,
-            "temperature": vitals.temperature,
-        }
+        score += points
+        breakdown["consciousness"] = points
 
-        # NEWS exige Saturação e O2 Suplementar
-        if score_name == "NEWS":
-            required_fields["o2sat"] = vitals.o2sat
-            # O2 suplementar é booleano, se for None, assumimos False (mas avisamos)
-            # Nota: 'supplemental_oxygen' deve existir no seu VitalsSchema
-
-        # 2. Detecção de campos faltantes (que são estritamente numéricos)
-        missing = [k for k, v in required_fields.items() if v is None]
-        assumptions = []
-
-        # 3. Regras de Negócio para Neurológico (MIMIC-IV Workaround)
-        # Se for NEWS e faltar ACVPU/GCS
-        if score_name == "NEWS" and not vitals.acvpu and not vitals.gcs:
-            assumptions.append("Missing Neuro (ACVPU/GCS): Assumed 'Alert' (0 pts)")
+        assumptions = [f"Missing {f} -> Assumed Normal (0)" for f in missing_fields]
         
-        # Se for MEWS e faltar AVPU/GCS
-        if score_name == "MEWS" and not vitals.avpu and not vitals.gcs:
-            assumptions.append("Missing Neuro (AVPU/GCS): Assumed 'Alert' (0 pts)")
-            
-        # 4. Regra para O2 Suplementar (Se não constar, assume ar ambiente)
-        if score_name == "NEWS" and getattr(vitals, 'supplemental_oxygen', None) is None:
-             assumptions.append("Missing Supp O2: Assumed 'False' (Room Air)")
-
-        return ScoreCapability(
-            score_name=score_name,
-            can_calculate=(len(missing) == 0),
-            missing_fields=missing,
-            assumptions_made=assumptions
+        return ScoreBreakdown(
+            total_score=score,
+            breakdown=breakdown,
+            assumptions_used=assumptions,
+            is_estimate=len(missing_fields) > 0
         )
 
     @staticmethod
-    def calculate_news(vitals: 'VitalsSchema', assumptions: List[str]) -> ScoreBreakdown:
-        """
-        Calculates the National Early Warning Score (NEWS) based on vital signs.
-        
-        Args:
-            vitals (VitalsSchema): The patient's vital signs.
-            assumptions (List[str]): List of assumptions already made regarding missing data.
-            
-        Returns:
-            ScoreBreakdown: The total score and component breakdown.
-        """
+    def calculate_mews(vitals: 'VitalsSchema') -> ScoreBreakdown:
         score = 0
-        details = {}
+        breakdown = {}
+        missing_fields = []
+
+        def get_points(val, logic_func, field_name):
+            if val is None:
+                missing_fields.append(field_name)
+                return 0
+            return logic_func(val)
+
+        # MEWS Logic (Simplified Standard)
+        rr_points = get_points(vitals.resprate, lambda x: 2 if x <= 8 or x >= 21 else (3 if x >= 30 else 0), "resprate")
+        score += rr_points
+        breakdown["resprate"] = rr_points
+
+        hr_points = get_points(vitals.heartrate, lambda x: 2 if x <= 40 or x >= 111 else (3 if x >= 130 else (1 if x <= 50 or x >= 101 else 0)), "heartrate")
+        score += hr_points
+        breakdown["heartrate"] = hr_points
+
+        sbp_points = get_points(vitals.sbp, lambda x: 3 if x <= 70 else (2 if x <= 80 else (1 if x <= 100 else 0)), "sbp")
+        score += sbp_points
+        breakdown["sbp"] = sbp_points
+
+        temp_points = get_points(vitals.temperature, lambda x: 2 if x <= 35.0 or x >= 38.5 else 0, "temperature")
+        score += temp_points
+        breakdown["temperature"] = temp_points
+
+        avpu = str(vitals.avpu).lower() if vitals.avpu else ""
+        points = 0
+        if "alert" in avpu: points = 0
+        elif "verbal" in avpu: points = 1
+        elif "pain" in avpu: points = 2
+        elif "unresponsive" in avpu: points = 3
+        else: missing_fields.append("avpu")
         
-        # Helper para evitar crash com None (usando valores normais fisiológicos como fallback neutro)
-        # Nota: Só chegamos aqui se o check_capability permitiu, mas segurança nunca é demais.
-        rr = VitalSignCalculator._safe_get(vitals.resprate, 18)
-        hr = VitalSignCalculator._safe_get(vitals.heartrate, 75)
-        sbp = VitalSignCalculator._safe_get(vitals.sbp, 120)
-        temp = VitalSignCalculator._safe_get(vitals.temperature, 37.0)
-        spo2 = VitalSignCalculator._safe_get(vitals.o2sat, 98)
-        
-        # Lógica O2 Suplementar
-        supp_o2 = getattr(vitals, 'supplemental_oxygen', False)
-        if supp_o2 is None: supp_o2 = False
+        score += points
+        breakdown["avpu"] = points
 
-        # --- Frequência Respiratória ---
-        if rr <= 8: s = 3
-        elif 9 <= rr <= 11: s = 1
-        elif 12 <= rr <= 20: s = 0
-        elif 21 <= rr <= 24: s = 2
-        else: s = 3
-        score += s; details['resprate'] = s
+        assumptions = [f"Missing {f} -> Assumed Normal (0)" for f in missing_fields]
 
-        # --- Saturação O2 (Escala 1 - Padrão) ---
-        if spo2 <= 91: s = 3
-        elif 92 <= spo2 <= 93: s = 2
-        elif 94 <= spo2 <= 95: s = 1
-        else: s = 0
-        score += s; details['o2sat'] = s
+        return ScoreBreakdown(
+            total_score=score,
+            breakdown=breakdown,
+            assumptions_used=assumptions,
+            is_estimate=len(missing_fields) > 0
+        )
 
-        # --- Oxigênio Suplementar ---
-        s = 2 if supp_o2 else 0
-        score += s; details['supplemental_oxygen'] = s
-
-        # --- Pressão Sistólica ---
-        if sbp <= 90: s = 3
-        elif 91 <= sbp <= 100: s = 2
-        elif 101 <= sbp <= 110: s = 1
-        elif 111 <= sbp <= 219: s = 0
-        else: s = 3
-        score += s; details['sbp'] = s
-
-        # --- Frequência Cardíaca ---
-        if hr <= 40: s = 3
-        elif 41 <= hr <= 50: s = 1
-        elif 51 <= hr <= 90: s = 0
-        elif 91 <= hr <= 110: s = 1
-        elif 111 <= hr <= 130: s = 2
-        else: s = 3
-        score += s; details['heartrate'] = s
-
-        # --- Temperatura ---
-        if temp <= 35.0: s = 3
-        elif 35.1 <= temp <= 36.0: s = 1
-        elif 36.1 <= temp <= 38.0: s = 0
-        elif 38.1 <= temp <= 39.0: s = 1
-        else: s = 2
-        score += s; details['temperature'] = s
-
-        # --- Consciência (ACVPU) ---
-        # Lógica: Se tem assumption de neuro, é 0. Se não, verifica o dado real.
-        neuro_score = 0
-        if not any("Missing Neuro" in a for a in assumptions):
-            # Se tivermos dados reais e NÃO for Alert, pontua 3
-            status = str(vitals.acvpu).lower() if vitals.acvpu else "alert"
-            if status != "alert":
-                neuro_score = 3
-        
-        score += neuro_score; details['acvpu'] = neuro_score
-
-        return ScoreBreakdown(total_score=score, breakdown=details, assumptions_used=assumptions)
-
-    @staticmethod
-    def calculate_mews(vitals: 'VitalsSchema', assumptions: List[str]) -> ScoreBreakdown:
-        """
-        Calculates the Modified Early Warning Score (MEWS) based on vital signs.
-        
-        Args:
-            vitals (VitalsSchema): The patient's vital signs.
-            assumptions (List[str]): List of assumptions already made regarding missing data.
-            
-        Returns:
-            ScoreBreakdown: The total score and component breakdown.
-        """
-        score = 0
-        details = {}
-
-        # 1. Sanitização de Inputs (Defensive Programming)
-        # Valores padrão fisiológicos para não quebrar o cálculo se algo passou null
-        rr = VitalSignCalculator._safe_get(vitals.resprate, 18)
-        hr = VitalSignCalculator._safe_get(vitals.heartrate, 75)
-        sbp = VitalSignCalculator._safe_get(vitals.sbp, 120)
-        temp = VitalSignCalculator._safe_get(vitals.temperature, 37.0)
-
-        # 2. Lógica AVPU (Neurológico)
-        # Se assumimos que ele está Alerta (devido a dados faltantes), score é 0.
-        if any("Missing Neuro" in a for a in assumptions):
-            neuro_score = 0
-        else:
-            # Normaliza para lower case para evitar erro se vier "Voice" ou "voice"
-            avpu_input = str(vitals.avpu).lower() if vitals.avpu else "alert"
-            
-            # Mapeamento Limpo (Clean Code)
-            avpu_map = {
-                "alert": 0,
-                "a": 0,      # Caso venha abreviado
-                "voice": 1,
-                "v": 1,
-                "pain": 2,
-                "p": 2,
-                "unresponsive": 3,
-                "u": 3
-            }
-            # .get(key, default) -> Se vier algo bizarro, assume 3 (pior caso) ou lança erro. 
-            # Clinicamente, assumir o pior em dados sujos é mais seguro, mas aqui assumiremos 3.
-            neuro_score = avpu_map.get(avpu_input, 3) 
-
-        score += neuro_score; details['avpu'] = neuro_score
-
-        # 3. Frequência Respiratória (MEWS)
-        if rr < 9: s = 2
-        elif 9 <= rr <= 14: s = 0
-        elif 15 <= rr <= 20: s = 1
-        elif 21 <= rr <= 29: s = 2
-        else: s = 3
-        score += s; details['resprate'] = s
-
-        # 4. Frequência Cardíaca (MEWS)
-        if hr <= 40: s = 2
-        elif 40 < hr <= 50: s = 1
-        elif 51 <= hr <= 100: s = 0
-        elif 101 <= hr <= 110: s = 1
-        elif 111 <= hr <= 120: s = 2
-        else: s = 3
-        score += s; details['heartrate'] = s
-
-        # 5. Pressão Sistólica (MEWS)
-        if sbp <= 70: s = 3
-        elif 71 <= sbp <= 80: s = 2
-        elif 81 <= sbp <= 100: s = 1
-        elif 101 <= sbp <= 199: s = 0
-        else: s = 2 # >= 200
-        score += s; details['sbp'] = s
-
-        # 6. Temperatura (MEWS)
-        if temp <= 35.0: s = 2
-        elif 35.0 < temp <= 37.8: s = 0 # Note: MEWS geralmente corta em 38.5
-        else: s = 2 # > 37.
-        score += s; details['temperature'] = s
-
-
-        return ScoreBreakdown(total_score=score, breakdown=details, assumptions_used=assumptions)
-
-# --- A Tool Definitiva ---
-
-@tool
-def calculate_clinical_score(vitals: 'VitalsSchema', score_name: str) -> str:
-    """
-    Calculates clinical risk scores (NEWS or MEWS) deterministically given the patient's vital signs.
-    It handles missing data by checking capability and applying standard clinical default assumptions where appropriate.
-    
-    Args:
-        vitals (VitalsSchema): The structured vital signs extracted from the triage note.
-        score_name (str): The identifier of the score to calculate ("NEWS" or "MEWS").
-        
-    Returns:
-        str: A formatted string containing the total score, breakdown of points per vital, and any assumptions made.
-    """
-    # 1. Verifica Capacidade
-    capability = VitalSignCalculator.check_capability(vitals, score_name)
-    
-    if not capability.can_calculate:
-        return f"ERRO: Não é possível calcular {score_name}. Faltam dados: {capability.missing_fields}"
-
-    # 2. Calcula
+def calculate_clinical_score(vitals: VitalsSchema, score_name: str) -> str:
+    """Entry point for the agent."""
     try:
         if score_name == "NEWS":
-            result = VitalSignCalculator.calculate_news(vitals, capability.assumptions_made)
+            result = VitalSignCalculator.calculate_news(vitals)
         elif score_name == "MEWS":
-            result = VitalSignCalculator.calculate_mews(vitals, capability.assumptions_made)
+            result = VitalSignCalculator.calculate_mews(vitals)
         else:
-            return "ERRO: Score não suportado. Use 'NEWS' ou 'MEWS'."
-            
-        # 3. Retorna Formato Amigável para o LLM ler
-        return (
-            f"RESULTADO {score_name}: {result.total_score}\n"
-            f"DETALHES: {result.breakdown}\n"
-            f"NOTAS DE AUDITORIA: {result.assumptions_used}"
+            return "ERRO: Score não suportado."
+        
+        status_tag = "[ESTIMATED]" if result.is_estimate else "[CONFIRMED]"
+        
+        output = (
+            f"STATUS: {status_tag}\n"
+            f"SCORE TOTAL {score_name}: {result.total_score}\n"
+            f"BREAKDOWN: {result.breakdown}\n"
         )
+        if result.assumptions_used:
+            output += f"WARNING: {result.assumptions_used}\n"
+            
+        return output
+
     except Exception as e:
-        return f"ERRO INTERNO DE CÁLCULO: {str(e)}"
+        logger.error(f"Error calculating {score_name}: {e}")
+        return f"CRITICAL ERROR: {str(e)}"
