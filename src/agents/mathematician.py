@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 SEED = 42
 
 # 1. Configuração do LLM (Sem bind_tools!)
-# Removemos a complexidade de tools para destravar o Llama 3.
 llm = ChatOpenAI(
     base_url="http://127.0.0.1:1234/v1",
     api_key=SecretStr("lm-studio"),
@@ -45,53 +44,53 @@ except FileNotFoundError:
 def mathematician_node(state: AgentState) -> Dict[str, Any]:
     """
     Nó Matemático Híbrido (Padrão Glass Box).
-    
-    Mudança de Paradigma:
-    1. Python executa o cálculo determinístico (NEWS e MEWS).
-    2. Llama 3 recebe os resultados prontos e apenas gera a interpretação clínica.
-    Isso elimina o congelamento por falha de Function Calling em modelos menores.
     """
     logger.info("--- 🧮 NODE: MATHEMATICIAN (Deterministic) ---")
     
-    # 1. Recuperação Segura dos Dados
-    # Tenta pegar os vitais limpos do Adapter (preferencial) ou brutos
+    # 1. Recuperação Segura dos Dados (CORREÇÃO AQUI)
     extracted_data = state.get("extracted_data", {})
     
     vitals_data = None
     
-    # Estratégia de Fallback para encontrar os dados
+    # Estratégia de Fallback para encontrar os dados em diferentes formatos
     if "extracted_vitals" in extracted_data:
+        # Formato 'achatado' (Flat) pelo Adapter
         vitals_data = extracted_data["extracted_vitals"]
     elif "vital_signs" in extracted_data:
+        # Formato antigo
         vitals_data = extracted_data["vital_signs"]
-    elif hasattr(extracted_data, "clinical"): # Caso venha como objeto Pydantic
+    elif isinstance(extracted_data, dict) and "clinical" in extracted_data:
+        # CORREÇÃO: Formato ScribeSchema puro (dict aninhado)
+        # O log mostrou: {'clinical': {'vitals': {...}}}
+        vitals_data = extracted_data.get("clinical", {}).get("vitals")
+    elif hasattr(extracted_data, "clinical"): 
+        # Formato ScribeSchema como Objeto Pydantic
         vitals_data = extracted_data.clinical.vitals.model_dump()
     
     if not vitals_data:
-        logger.error("No vitals data found in state.")
+        logger.error(f"No vitals data found in state. State keys: {extracted_data.keys() if isinstance(extracted_data, dict) else 'Not a dict'}")
         return {
+            "risk_score_report": "Error: Missing clinical data for calculation.", # Fallback key for supervisor
             "risk_analysis": {
-                "risk_score": "N/A",
-                "reasoning": "Missing clinical data for calculation."
+                "overall_risk_assessment": "N/A - Missing Data",
+                "capabilities": [],
+                "analyzed_scores": []
             }
         }
 
     # 2. Execução Determinística das Ferramentas (Python Puro)
-    # Não pedimos para a IA calcular. Nós calculamos.
     logger.info("Executing Python Calculations directly...")
     
     results = {}
     scores_to_run = ["NEWS", "MEWS"]
     
     try:
-        # Reconstrói o objeto VitalsSchema necessário para a ferramenta
-        # O Adapter do Scribe garante que vitals_data seja um dict plano compatível
+        # Garante que vitals_data é um dicionário compatível com VitalsSchema
         vitals_obj = VitalsSchema(**vitals_data)
         
         for score_name in scores_to_run:
             try:
-                # Chama a função diretamente (bypassando a decisão da IA)
-                # Se 'calculate_clinical_score' for uma @tool, usamos .invoke ou chamamos direto
+                # Chama a função diretamente
                 if hasattr(calculate_clinical_score, "invoke"):
                     res = calculate_clinical_score.invoke({"vitals": vitals_obj, "score_name": score_name})
                 else:
@@ -104,13 +103,13 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
                 
     except Exception as e:
         logger.error(f"Critical error preparing vitals for calculation: {e}")
-        return {"risk_analysis": {"risk_score": "Error", "reasoning": str(e)}}
+        return {
+             "risk_score_report": f"Calculation Error: {str(e)}"
+        }
 
     logger.info(f"Calculated Results: {results}")
 
     # 3. Invocação do Modelo para Interpretação (NLU apenas)
-    # O Llama 3 agora só precisa ler o texto e formatar o JSON. Muito mais fácil.
-    
     context_msg = f"""
     [PRE-CALCULATED DATA - DO NOT RECALCULATE]
     Input Vitals: {json.dumps(vitals_data, default=str)}
@@ -120,9 +119,9 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
     
     [TASK]
     Analyze the calculated scores above.
-    1. Summarize the risk level.
-    2. Provide clinical reasoning based strictly on these numbers.
-    3. Output in the required JSON format.
+    1. Fill the 'capabilities' list indicating which scores were successfully calculated.
+    2. Fill 'analyzed_scores' for those with valid results.
+    3. Synthesize the 'overall_risk_assessment'.
     """
     
     messages = [
@@ -131,24 +130,22 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
     ]
     
     try:
-        # A chamada agora é rápida e não trava
         response = mathematician_model.invoke(messages)
         result_data = response.model_dump()
         
         # Injetamos o resultado bruto do Python para auditoria perfeita
         result_data["calculated_raw"] = results
         
+        # Gera um relatório de texto simples para o Supervisor (backward compatibility)
+        simple_report = f"NEWS: {results.get('NEWS', 'N/A')}\nMEWS: {results.get('MEWS', 'N/A')}"
+        
         return {
-            "risk_analysis": result_data
+            "risk_analysis": result_data,
+            "risk_score_report": simple_report # Chave que o Supervisor procura
         }
         
     except Exception as e:
         logger.error(f"Llama 3 Interpretation failed: {e}")
-        # Fallback se até a interpretação falhar (mas o cálculo já temos!)
         return {
-            "risk_analysis": {
-                "risk_score": str(results),
-                "reasoning": "Automated Calculation (AI Interpretation Failed)",
-                "calculated_raw": results
-            }
+            "risk_score_report": f"Auto-Calc: {str(results)} (AI Interpretation Failed)"
         }
