@@ -11,7 +11,7 @@ from src.state.agent_state import AgentState
 from src.schemas.scribe_schema import VitalsSchema
 # Importamos a ferramenta, mas vamos usá-la como função Python normal!
 from src.tools.calculator import calculate_clinical_score 
-from src.schemas.mathematician_schema import ScoreCapability
+from src.schemas.mathematician_schema import MathematicianSchema
 
 load_dotenv()
 
@@ -31,7 +31,7 @@ llm = ChatOpenAI(
 )
 
 # Forçamos uma saída estruturada para o relatório final
-mathematician_model = llm.with_structured_output(ScoreCapability)
+mathematician_model = llm.with_structured_output(MathematicianSchema)
 
 # Carregamento robusto do prompt
 prompt_path = os.path.join(os.getcwd(), "prompts", "mathematician_prompt.md")
