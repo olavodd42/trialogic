@@ -39,70 +39,87 @@ except FileNotFoundError:
     logger.warning("Mathematician prompt not found. Using default.")
     MATHEMATICIAN_SYSTEM_PROMPT = "You are a clinical mathematician agent."
 
+
+import traceback
+
 def mathematician_node(state: AgentState) -> Dict[str, Any]:
     """
     Agent responsible for deterministic calculation of clinical scores.
     Refactored to handle nested state structures (clinical -> vitals).
     """
     logger.info("--- Node: Mathematician Agent ---")
+    print("\n--- 🧮 NODE: MATHEMATICIAN ---")
     
-    # 1. Recupera Vitais do Estado com Lógica de Fallback (Tech Lead Fix)
-    vitals_data = state.get("vitals")
-    
-    # Se não achar na raiz, procura dentro de 'clinical' (onde o Scribe geralmente coloca)
-    if not vitals_data:
-        logger.info("Vitals not found at root. Checking 'clinical' nested key...")
-        clinical_data = state.get("clinical", {})
-        if clinical_data:
+    try:
+        # 1. Recupera Vitais do Estado com Lógica de Fallback (Tech Lead Fix)
+        data = state.get("extracted_data")
+        if not data:
+            raise ValueError("No extracted_data found in state")
+
+        # Handle Pydantic model vs Dict
+        if hasattr(data, "clinical"):
+            clinical_data = data.clinical
+        elif isinstance(data, dict):
+             clinical_data = data.get("clinical", {})
+        else:
+             raise ValueError(f"Unexpected data type for extracted_data: {type(data)}")
+
+        # Handle specific schema access
+        if hasattr(clinical_data, "vitals"):
+            vitals_data = clinical_data.vitals
+        elif isinstance(clinical_data, dict):
             vitals_data = clinical_data.get("vitals")
+        else:
+            vitals_data = None
+            
+        print(f"DEBUG: Vitals Data Type: {type(vitals_data)}")
 
-    # Se ainda assim for None ou vazio
-    if not vitals_data:
-        logger.error("No vitals found in state (checked root and 'clinical.vitals')")
-        return {
-            "risk_analysis": {"error": "No vitals extracted"},
-            "risk_score": "No vitals available for calculation"
-        }
+        if not vitals_data:
+            logger.error("clinical_data has no attribute 'vitals'.")
+            return {"risk_score_report": "Error: Missing Vitals"}
 
-    # Converter dicionário para Schema Pydantic para validação/uso
-    try:
-        vitals_schema = VitalsSchema(**vitals_data)
-    except Exception as e:
-        logger.error(f"Vitals validation failed: {e}")
-        return {
-            "risk_analysis": {"error": str(e)},
-            "risk_score": "Vitals data validation error"
-        }
+        # 2. Execução Determinística (Tool Usage via Python direto)
+        results = {}
+        for score in ["NEWS", "MEWS"]:
+            # A ferramenta agora retorna string formatada com Warnings se houver imputação
+            try:
+                results[score] = calculate_clinical_score(vitals_data, score)
+            except Exception as e:
+                logger.error(f"Calculation Error {score}: {e}")
+                results[score] = f"Error calculating {score}: {str(e)}"
 
-    # 2. Execução Determinística (Tool Usage via Python direto)
-    results = {}
-    for score in ["NEWS", "MEWS"]:
-        # A ferramenta agora retorna string formatada com Warnings se houver imputação
-        results[score] = calculate_clinical_score(vitals_schema, score)
+        # 3. Invocação do Modelo para Interpretação (NLU)
+        # Safe dump for JSON
+        vitals_json = "{}"
+        if hasattr(vitals_data, "model_dump"):
+            vitals_json = json.dumps(vitals_data.model_dump(), default=str)
+        elif hasattr(vitals_data, "dict"):
+            vitals_json = json.dumps(vitals_data.dict(), default=str)
+        else:
+            vitals_json = json.dumps(vitals_data, default=str)
 
-    # 3. Invocação do Modelo para Interpretação (NLU)
-    context_msg = f"""
-    [PRE-CALCULATED SCORES]
-    Analyze the following calculation outputs carefully. Note any [ESTIMATED] tags.
-    
-    Input Vitals: {json.dumps(vitals_data, default=str)}
-    
-    Calculation Output:
-    {json.dumps(results, indent=2)}
-    
-    [TASK]
-    Analyze the calculated scores above.
-    1. If the score status is [ESTIMATED], mention explicitly which data was missing in your analysis.
-    2. Fill 'analyzed_scores' with the numeric values.
-    3. Synthesize the 'overall_risk_assessment'.
-    """
-    
-    messages = [
-        SystemMessage(content=MATHEMATICIAN_SYSTEM_PROMPT),
-        HumanMessage(content=context_msg)
-    ]
-    
-    try:
+        context_msg = f"""
+        [PRE-CALCULATED SCORES]
+        Analyze the following calculation outputs carefully. Note any [ESTIMATED] tags.
+        
+        Input Vitals: {vitals_json}
+        
+        Calculation Output:
+        {json.dumps(results, indent=2)}
+        
+        [TASK]
+        Analyze the calculated scores above.
+        1. If the score status is [ESTIMATED], mention explicitly which data was missing in your analysis.
+        2. Fill 'analyzed_scores' with the numeric values.
+        3. Synthesize the 'overall_risk_assessment'.
+        """
+        
+        messages = [
+            SystemMessage(content=MATHEMATICIAN_SYSTEM_PROMPT),
+            HumanMessage(content=context_msg)
+        ]
+        
+        print("⏳ Calling LLM for Risk Analysis...")
         response = mathematician_model.invoke(messages)
         result_data = response.model_dump()
         
@@ -112,25 +129,16 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
         # Relatório simples para o Supervisor/Auditor ler
         simple_report = ""
         for score_name, text in results.items():
-            # Tenta extrair o valor numérico de forma segura
-            try:
-                score_val = text.split('\n')[1] if "SCORE TOTAL" in text else "N/A"
-            except IndexError:
-                score_val = "Error Parsing"
-                
-            if "[ESTIMATED]" in text:
-                simple_report += f"{score_name}: {score_val} (ESTIMATED - Missing Data)\n"
-            else:
-                simple_report += f"{score_name}: {score_val}\n"
+            simple_report += f"{score_name}: {text}\n"
 
+        print(f"✅ Mathematician Complete.")
+        
         return {
-            "risk_analysis": result_data,
-            "risk_score": simple_report 
+            "risk_score_report": simple_report,
+            "risk_analysis": result_data 
         }
 
     except Exception as e:
-        logger.error(f"Mathematician LLM error: {e}")
-        return {
-            "risk_analysis": {"error": str(e)},
-            "risk_score": "Error in risk analysis interpretation"
-        }
+        print(f"❌ Mathematician Critical Error: {e}")
+        traceback.print_exc()
+        return {"risk_score_report": f"Critical Error in Mathematician: {str(e)}"}

@@ -62,7 +62,6 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
         o2sat = vitals.o2sat
         pain = vitals.pain
         acuity = vitals.acuity 
-        gcs = vitals.gcs
 
         if temp is not None and (temp <= 25.0 or temp >= 45.0):
                 msg = f"Temperature value {vitals.temperature} is physiologically improbable (Celsius range 25-45)."
@@ -104,11 +103,6 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
             errors.append(msg)
             messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
             
-        if gcs is not None and (gcs < 3 or gcs > 15):
-            msg = f"GCS value {gcs} is impossible (3-15)."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-    
     if labs:
         potassium = labs.potassium
         sodium = labs.sodium
@@ -170,7 +164,7 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
             msg = f"ALT concentration {alt} is physiologically improbable."
             errors.append(msg)
             messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-
+    
     return {
         "validation_errors": errors,
         "validation_messages": messages

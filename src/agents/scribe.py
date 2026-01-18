@@ -45,7 +45,7 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
     if hasattr(input_data, "raw_text"):
         raw_note = input_data.raw_text
     elif isinstance(input_data, dict) and "raw_text" in input_data:
-        raw_note = input_data["raw_text"]
+        raw_note = input_data.get("raw_text", "")
     elif isinstance(input_data, str):
         raw_note = input_data
         
@@ -53,7 +53,7 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
         logger.warning("Scribe received empty input.")
         print("⚠️ Warning: Empty input for Scribe.")
         return {"validation_errors": ["Empty input text"]}
-    
+    print(input_data)
     # 2. Invoke LLM
     try:
         messages = [
@@ -65,26 +65,34 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
         print(f"⏳ Calling LLM for Extraction (Input Size: {len(raw_note)} chars)...")
         
         response = scribe_model.invoke(messages)
+
+        print(response)
         
         # 3. Process Output
         # Convert Pydantic model to dict
-        output_data = response.model_dump()
+        output_data = response
+        # vitals_found = output_data.clinical.vitals
         
         updates = {
-            "extracted_data": output_data, # FIX: Return to expected key for Supervisor
+            "extracted_data": output_data,
             "validation_errors": [],
             "attempts": state.get("attempts", 0) + 1,
         }
         
         # Log success details
-        vitals = output_data.get("clinical", {}).get("vitals", {})
-        print(f"✅ Extraction Complete. Vitals found: {list(vitals.keys()) if vitals else 'None'}")
+        vitals = output_data.clinical.vitals
+        if vitals:
+             print(f"✅ Extraction Complete. Vitals Vlaues: {vitals.model_dump()}")
+        else:
+             print("⚠️ No vitals object found in extracted data.")
+
         
         return updates
 
     except Exception as e:
         logger.error(f"Scribe extraction failed: {e}")
         print(f"❌ Scribe Error: {e}")
+
         return {
             "validation_errors": [str(e)],
             "attempts": state.get("attempts", 0) + 1

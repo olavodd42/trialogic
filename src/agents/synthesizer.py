@@ -109,6 +109,8 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
             "patient": full_patient_content
         }))
 
+        print(evaluation)
+
         # Lógica de validação inteligente
         if evaluation.compliance == "Non-Compliant":
             # Só somos rígidos se ele acusar problema
