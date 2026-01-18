@@ -71,11 +71,25 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
         o2sat = vitals.o2sat
         acuity = vitals.acuity 
 
-        if temp is not None and (temp <= 25.0 or temp >= 45.0):
-            msg = f"Temperature value {vitals.temperature} is physiologically improbable (Celsius range 25-45)."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check units."))
-            
+        # Temperature Normalization and Validation
+        if temp is not None:
+            # Check for Fahrenheit-like values (e.g. > 45)
+            if temp > 45.0:
+                 temp_c = (temp - 32) * 5.0 / 9.0
+                 # If the converted value is valid, accept it and update
+                 if 25.0 <= temp_c <= 45.0:
+                      vitals.temperature = round(temp_c, 1)
+                      # Log info if needed, but no error
+                 else:
+                      msg = f"Temperature value {temp} is physiologically improbable (Celsius range 25-45)."
+                      errors.append(msg)
+                      messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check units."))
+            # Check for too low values
+            elif temp <= 25.0:
+                msg = f"Temperature value {temp} is physiologically improbable (Celsius range 25-45)."
+                errors.append(msg)
+                messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check units."))
+
         if hr is not None and (hr < 0 or hr > 300):
             msg = f"Heart rate value {hr} is physiologically improbable."
             errors.append(msg)
@@ -107,6 +121,7 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
             messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
             
     return {
+        "extracted_data": data.model_dump(),
         "validation_errors": errors,
         "validation_messages": messages
     }

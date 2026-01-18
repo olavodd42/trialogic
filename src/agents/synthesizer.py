@@ -111,16 +111,25 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
 
         print(evaluation)
 
-        # Lógica de validação inteligente
-        if evaluation.compliance == "Non-Compliant":
-            # Só somos rígidos se ele acusar problema
-            is_faithful = check_quote_fidelity(evaluation.evidence_quote, full_context_content)
-            if not is_faithful:
-                print(f"🚨 HALLUCINATION DETECTED: Quote '{evaluation.evidence_quote}' not found.")
-                # Fallback suave para não perder o dado no artigo
-                evaluation.evidence_quote += " [Warning: Quote inexact]"
+        # Preparação segura dos atributos (suporte a Pydantic V2 e Dict)
+        if isinstance(evaluation, dict):
+            quote = evaluation.get("evidence_quote", "")
+        else:
+            quote = getattr(evaluation, "evidence_quote", "")
+
+        # Só somos rígidos se ele acusar problema
+        is_faithful = check_quote_fidelity(quote, full_context_content)
+        if not is_faithful:
+            print(f"🚨 HALLUCINATION DETECTED: Quote '{quote}' not found.")
+                
+            # Fallback suave para não perder o dado no artigo
+            warning_suffix = " [Warning: Quote inexact]"
+            if isinstance(evaluation, dict):
+                evaluation["evidence_quote"] = quote + warning_suffix
+            else:
+                evaluation.evidence_quote += warning_suffix
         
-        print(f"📝 Veredito: {evaluation.compliance}")
+        print(f"📝 Veredict: {evaluation.clinical_risk_category}")
 
         return {
             "auditor_report": evaluation.model_dump()

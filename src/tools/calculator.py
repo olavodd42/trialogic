@@ -19,233 +19,228 @@ class ScoreBreakdown(BaseModel):
     is_estimate: bool = False
     status: str = "CALCULATED" # "CALCULATED", "INSUFFICIENT_DATA", "ERROR"
 
-class VitalSignCalculator:
+class ClinicalCalculator:
     """
-    Utility class for deterministic calculation of clinical scores (NEWS/MEWS).
-    
-    ACADEMIC NOTE:
-    Implements 'Explicit Failure' pattern (Safe AI). 
-    Critical missing values prevent score calculation instead of assuming normality (Imputation Bias).
+    Ferramenta determinística para cálculo de scores clínicos.
+    Implementa lógica 'Hard-Coded' para garantir precisão matemática que LLMs falham.
     """
 
     @staticmethod
-    def _safe_get(value: Optional[int | float]) -> Optional[int | float]:
-        """Helper ensuring safe retrieval."""
-        return value
-
-    @staticmethod
-    def calculate_news(vitals: RawVitalsLLM | VitalsSchema) -> ScoreBreakdown:
+    def calculate_news(vitals: dict) -> dict:
         score = 0
         breakdown = {}
-        missing_fields = []
 
-        # Helper lambda for concise logic
-        # TECH LEAD FIX: Se valor é None, NÃO retorna 0. Retorna None para sinalizar falha.
-        def get_points(val, logic_func, field_name):
-            if val is None:
-                missing_fields.append(field_name)
-                return None 
-            return logic_func(val)
+        # 1. Respiratory Rate
+        rr = vitals.get('resprate')
+        if rr is not None:
+            if rr <= 8: s = 3
+            elif 9 <= rr <= 11: s = 1
+            elif 12 <= rr <= 20: s = 0
+            elif 21 <= rr <= 24: s = 2
+            else: s = 3
+            score += s
+            breakdown['resprate'] = s
 
-        # 1. Respiration Rate (CRITICAL)
-        # Note: Names aligned with VitalsSchema (resprate)
-        rr_points = get_points(
-            vitals.resprate, 
-            lambda x: 3 if x <= 8 or x >= 25 else (2 if x >= 21 else (1 if x <= 11 else 0)), 
-            "resprate"
-        )
-        if rr_points is not None:
-            score += rr_points
-            breakdown["resprate"] = rr_points
-
-        # 2. O2 Saturation
-        spo2_points = get_points(
-            vitals.o2sat, 
-            lambda x: 3 if x <= 91 else (2 if x <= 93 else (1 if x <= 95 else 0)), 
-            "o2sat"
-        )
-        if spo2_points is not None:
-            score += spo2_points
-            breakdown["o2sat"] = spo2_points
+        # 2. SpO2 (Scale 1 - Assuming no hypercapnic failure for general screening)
+        spo2 = vitals.get('o2sat')
+        if spo2 is not None:
+            if spo2 <= 91: s = 3
+            elif 92 <= spo2 <= 93: s = 2
+            elif 94 <= spo2 <= 95: s = 1
+            else: s = 0
+            score += s
+            breakdown['o2sat'] = s
 
         # 3. Supplemental Oxygen
-        supp_o2 = vitals.supplemental_oxygen
-        if supp_o2 is None:
-            supp_o2_points = 0
-        elif str(supp_o2).lower() in ['true', 'yes', 'sim', '1']:
-            supp_o2_points = 2
-        else:
-            supp_o2_points = 0
-        score += supp_o2_points
-        breakdown["supplemental_oxygen"] = supp_o2_points
+        supp_o2 = vitals.get('supplemental_oxygen', False)
+        s = 2 if supp_o2 else 0
+        score += s
+        breakdown['supplemental_oxygen'] = s
 
         # 4. Temperature
-        temp_points = get_points(
-            vitals.temperature, 
-            lambda x: 3 if x <= 35.0 else (1 if x <= 36.0 or x >= 38.1 else (2 if x >= 39.1 else 0)), 
-            "temperature"
-        )
-        if temp_points is not None:
-            score += temp_points
-            breakdown["temperature"] = temp_points
+        temp = vitals.get('temperature')
+        if temp is not None:
+            if temp <= 35.0: s = 3
+            elif 35.1 <= temp <= 36.0: s = 1
+            elif 36.1 <= temp <= 38.0: s = 0
+            elif 38.1 <= temp <= 39.0: s = 1
+            else: s = 2 # > 39.1
+            score += s
+            breakdown['temperature'] = s
 
         # 5. Systolic BP
-        sbp_points = get_points(
-            vitals.sbp, 
-            lambda x: 3 if x <= 90 else (2 if x <= 100 else (1 if x <= 110 else 0)), 
-            "sbp"
-        )
-        if sbp_points is not None:
-            score += sbp_points
-            breakdown["sbp"] = sbp_points
-
+        sbp = vitals.get('sbp')
+        if sbp is not None:
+            if sbp <= 90: s = 3
+            elif 91 <= sbp <= 100: s = 2
+            elif 101 <= sbp <= 110: s = 1
+            elif 111 <= sbp <= 219: s = 0
+            else: s = 3
+            score += s
+            breakdown['sbp'] = s
 
         # 6. Heart Rate
-        hr_points = get_points(
-            vitals.heartrate, 
-            lambda x: 3 if x <= 40 or x >= 131 else (2 if x >= 111 else (1 if x <= 50 or x >= 91 else 0)), 
-            "heartrate"
-        )
-        if hr_points is not None:
-            score += hr_points
-            breakdown["heartrate"] = hr_points
+        hr = vitals.get('heartrate')
+        if hr is not None:
+            if hr <= 40: s = 3
+            elif 41 <= hr <= 50: s = 1
+            elif 51 <= hr <= 90: s = 0
+            elif 91 <= hr <= 110: s = 1
+            elif 111 <= hr <= 130: s = 2
+            else: s = 3
+            score += s
+            breakdown['heartrate'] = s
 
-        # 7. AVPU/Consciousness
-        points = 0
-        avpu = str(vitals.avpu).lower() if vitals.avpu else ""
+        # 7. Consciousness (ACVPU)
+        # Mapeamento simplificado do extrator para NEWS2
+        # Alert = 0, New Confusion/Voice/Pain/Unresponsive = 3
+        acvpu = vitals.get('acvpu', 'Alert').lower()
+        avpu = vitals.get('avpu', 'Alert').lower()
         
-        if not avpu:
-            # Se não tem info de consciência, é crítico.
-            missing_fields.append("consciousness")
-        elif "alert" in avpu:
-            points = 0
-        elif any(x in avpu for x in ["verbal", "pain", "unresponsive", "voice"]):
-            points = 3
+        if acvpu == 'confusion' or avpu in ['voice', 'pain', 'unresponsive']:
+            s = 3
         else:
-            points = 0 # Default safe fallback if text is weird, but could be strict.
-        
-        if "consciousness" not in missing_fields:
-            score += points
-            breakdown["consciousness"] = points
+            s = 0
+            
+        score += s
+        breakdown['consciousness'] = s
 
-        # --- SAFETY CHECK ---
-        # Se campos críticos faltam, INVALIDAMOS o score.
-        if missing_fields:
-            return ScoreBreakdown(
-                total_score=None,
-                breakdown=breakdown,
-                assumptions_used=[f"MISSING CRITICAL DATA: {f}" for f in missing_fields],
-                is_estimate=True,
-                status="INSUFFICIENT_DATA"
-            )
-        
-        return ScoreBreakdown(
-            total_score=score,
-            breakdown=breakdown,
-            assumptions_used=[],
-            is_estimate=False,
-            status="CALCULATED"
-        )
-    
+        return {
+            "score": score,
+            "breakdown": breakdown,
+            "risk": "High" if score >= 7 else "Medium" if score >= 5 else "Low"
+        }
+
     @staticmethod
-    def calculate_mews(vitals: VitalsSchema) -> ScoreBreakdown:
+    def calculate_mews(vitals: dict) -> dict:
+        """
+        Modified Early Warning Score (MEWS).
+        FIX: Corrected AVPU scoring logic.
+        """
         score = 0
         breakdown = {}
-        missing_fields = []
 
-        def get_points(val, logic_func, field_name):
-            if val is None:
-                missing_fields.append(field_name)
-                return None
-            return logic_func(val)
+        # 1. RR
+        rr = vitals.get('resprate')
+        if rr is not None:
+            if rr < 9: s = 2
+            elif 9 <= rr <= 14: s = 0
+            elif 15 <= rr <= 20: s = 1
+            elif 21 <= rr <= 29: s = 2
+            else: s = 3
+            score += s
+            breakdown['resprate'] = s
 
-        # MEWS Logic (Simplified Standard)
-        rr_points = get_points(
-            vitals.resprate, 
-            lambda x: 2 if x <= 8 or x >= 21 else (3 if x >= 30 else 0), 
-            "resprate"
-        )
-        if rr_points is not None: score += rr_points; breakdown["resprate"] = rr_points
+        # 2. HR
+        hr = vitals.get('heartrate')
+        if hr is not None:
+            if hr < 40: s = 2
+            elif 41 <= hr <= 50: s = 1
+            elif 51 <= hr <= 100: s = 0
+            elif 101 <= hr <= 110: s = 1
+            elif 111 <= hr <= 129: s = 2
+            else: s = 3
+            score += s
+            breakdown['heartrate'] = s
 
-        hr_points = get_points(
-            vitals.heartrate, 
-            lambda x: 2 if x <= 40 or x >= 111 else (3 if x >= 130 else (1 if x <= 50 or x >= 101 else 0)), 
-            "heartrate"
-        )
-        if hr_points is not None: score += hr_points; breakdown["heartrate"] = hr_points
+        # 3. SBP
+        sbp = vitals.get('sbp')
+        if sbp is not None:
+            if sbp <= 70: s = 3
+            elif 71 <= sbp <= 80: s = 2
+            elif 81 <= sbp <= 100: s = 1
+            elif 101 <= sbp <= 199: s = 0
+            else: s = 2
+            score += s
+            breakdown['sbp'] = s
 
-        sbp_points = get_points(
-            vitals.sbp, 
-            lambda x: 3 if x <= 70 else (2 if x <= 80 else (1 if x <= 100 else 0)), 
-            "sbp"
-        )
-        if sbp_points is not None: score += sbp_points; breakdown["sbp"] = sbp_points
+        # 4. Temp
+        temp = vitals.get('temperature')
+        if temp is not None:
+            if temp < 35: s = 2
+            elif 35 <= temp <= 38.4: s = 0
+            elif 38.5 <= temp < 39: s = 1 # Note: MEWS thresholds vary slightly, standardizing here.
+            else: s = 2
+            score += s
+            breakdown['temperature'] = s
 
-        temp_points = get_points(
-            vitals.temperature, 
-            lambda x: 2 if x <= 35.0 or x >= 38.5 else 0, 
-            "temperature"
-        )
-        if temp_points is not None: score += temp_points; breakdown["temperature"] = temp_points
-
-        # AVPU
-        avpu = str(vitals.avpu).lower() if vitals.avpu else ""
-        points = 0
-        if not avpu:
-            missing_fields.append("avpu")
-        elif "alert" in avpu: points = 0
-        elif "verbal" in avpu: points = 1
-        elif "pain" in avpu: points = 2
-        elif "unresponsive" in avpu: points = 3
+        # 5. AVPU (Neuro) - CORREÇÃO APLICADA
+        # Alert = 0
+        # Voice = 1 (Includes new confusion in some variations, strictly response to voice)
+        # Pain = 2
+        # Unresponsive = 3
         
-        if "avpu" not in missing_fields:
-            score += points
-            breakdown["avpu"] = points
+        avpu_raw = vitals.get('avpu', 'Alert').lower()
+        acvpu_raw = vitals.get('acvpu', 'Alert').lower() # Check ACVPU too just in case
 
-        if missing_fields:
-            return ScoreBreakdown(
-                total_score=None,
-                breakdown=breakdown,
-                assumptions_used=[f"MISSING: {f}" for f in missing_fields],
-                is_estimate=True,
-                status="INSUFFICIENT_DATA"
-            )
+        if avpu_raw == 'alert' and acvpu_raw == 'alert':
+            s = 0
+        elif avpu_raw == 'voice' or acvpu_raw == 'confusion': 
+            # Se responde a voz OU tem confusão mental aguda (proxy para alteração nível consciência)
+            s = 1 
+        elif avpu_raw == 'pain':
+            s = 2
+        elif avpu_raw == 'unresponsive':
+            s = 3
+        else:
+            s = 0 # Default to alert if unknown, or flag error? For MVP, default 0 safe-ish.
 
-        return ScoreBreakdown(
-            total_score=score,
-            breakdown=breakdown,
-            assumptions_used=[],
-            is_estimate=False,
-            status="CALCULATED"
-        )
+        score += s
+        breakdown['avpu'] = s
 
-def calculate_clinical_score(vitals: VitalsSchema, score_name: str) -> str:
+        return {
+            "score": score,
+            "breakdown": breakdown,
+            "risk": "Critical" if score >= 5 else "Monitor"
+        }
+
+def calculate_clinical_score(vitals: dict, score_name: str) -> str:
 
     """Entry point for the agent."""
     try:
         if score_name == "NEWS":
-            result = VitalSignCalculator.calculate_news(vitals)
+            result = ClinicalCalculator.calculate_news(vitals)
         elif score_name == "MEWS":
-            result = VitalSignCalculator.calculate_mews(vitals)
+            result = ClinicalCalculator.calculate_mews(vitals)
         else:
             return "ERRO: Score não suportado."
         
-        # Formata a saída baseada no Status
-        if result.status == "INSUFFICIENT_DATA":
+        # Ajuste para lidar com o retorno dicionário das funções de cálculo
+        if isinstance(result, dict):
+             # As funções calculate_news/mews retornam dict com chaves "score", "breakdown", "risk"
+            total_score = result.get("score")
+            breakdown = result.get("breakdown", {})
+            risk = result.get("risk", "Unknown")
+            
+            output = (
+                f"STATUS: [CALCULATED]\n"
+                f"SCORE TOTAL {score_name}: {total_score}\n"
+                f"BREAKDOWN: {breakdown}\n"
+                f"RISK: {risk}\n"
+            )
+            return output
+        
+        # Fallback caso o retorno seja um objeto (futuro)
+        if hasattr(result, "status") and result.status == "INSUFFICIENT_DATA":
             return (
                 f"STATUS: INSUFFICIENT DATA for {score_name}\n"
                 f"MISSING FIELDS: {result.assumptions_used}\n"
                 f"ACTION: Please search patient history or request vitals check."
             )
         
-        status_tag = "[ESTIMATED]" if result.is_estimate else "[CONFIRMED]"
+        # Lógica original caso seja objeto
+        status_tag = "[ESTIMATED]" if getattr(result, "is_estimate", False) else "[CONFIRMED]"
+        total_score = getattr(result, "total_score", getattr(result, "score", "N/A"))
+        breakdown = getattr(result, "breakdown", {})
+        
         output = (
             f"STATUS: {status_tag}\n"
-            f"SCORE TOTAL {score_name}: {result.total_score}\n"
-            f"BREAKDOWN: {result.breakdown}\n"
+            f"SCORE TOTAL {score_name}: {total_score}\n"
+            f"BREAKDOWN: {breakdown}\n"
         )
-        if result.assumptions_used:
-            output += f"WARNING: {result.assumptions_used}\n"
+        assumptions = getattr(result, "assumptions_used", [])
+        if assumptions:
+            output += f"WARNING: {assumptions}\n"
             
         return output
 

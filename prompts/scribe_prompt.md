@@ -16,21 +16,28 @@ Process unstructured clinical narratives to populate a strict, hierarchical JSON
 2. **Vital Signs Extraction Rules (CRITICAL)**:
     - **EXTRACT NUMBERS ONLY**: Do NOT include units. E.g. "39.2 C" -> 39.2, "24 rpm" -> 24.
     - **Temperature**:
-        - Look for keywords: "Temp", "T", "Temperature", "Tc".
-        - Accept formats: "39.2".
+        - Look for keywords: "Temp", "T", "Temperature", "Tc", "F".
+        - Accept formats: "39.2" ".
+        - If in Fahrenheit needs to convert to Celsius.
+        - If multiple temperatures are present, choose the one from:
+          1) Admission Physical Exam
+          2) Admission Vitals
+          3) ED Initial Vitals
+
     - **Blood Pressure (BP)**:
-        - Look patterns like "120/80", "120 over 80".
+        - Look patterns like "120/80", "120 over 80", "BP 120/80".
         - Split into `sbp` (systolic) and `dbp` (diastolic).
     - **Heart Rate (HR)**:
         - Look for "HR", "Pulse", "BPM".
     - **Oxygen Saturation (SpO2)**:
-        - Look for "SpO2", "O2 sat", "Sat".
+        - Look for "SpO2", "O2 sat", "Sat", "O2-sat".
         - Value is strictly 0-100.
     - **Respiratory Rate (RR)**:
-        - Look for "RR", "Resp", "Respirations".
+        - Look for "RR", "Resp", "Respirations", "R".
     - **Neurological Status (AVPU/ACVPU)**:
-        - Map descriptions to strictly allowed Enums: Alert, Voice, Pain, Unresponsive, Confusion.
+        - Map descriptions to strictly allowed Enums: Alert, Voice, Pain, Unresponsive, Confusion (THE LAST ONLY FOR ACVPU).
         - "Disoriented", "Confused", "Altered Mental Status" -> Map to **Confusion**.
+        - AVPU and ACVPU must not be None, if any of them exists.
 
 3. **List & Bullet Parsing (CRITICAL)**:
     - If the input contains a list (e.g., "- Key: Value"), YOU MUST process every line.

@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 from src.state.agent_state import AgentState
 from src.schemas.scribe_schema import RawScribeLLM, VitalsSchema, ClinicalSchema
-from src.schemas.input_schema import InputSchema
+from src.utils.vitals_normalizer import normalize_temperature
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -73,15 +73,26 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
             logger.error("'response' has no attribute 'vitals'")
 
         print("DEBUG raw_vitals:", vitals.model_dump() if vitals else None)
+        
+        # Ensure ACVPU is set if AVPU is present
+        final_acvpu = vitals.acvpu
+        if final_acvpu is None and vitals.avpu is not None:
+            # TypeAVPU is a subset of TypeACVPU, so we can map directly
+            final_acvpu = vitals.avpu
+
+        temp_celsius = vitals.temperature
+        if temp_celsius > 50:
+            temp_celsius = round((temp_celsius - 32) * (5/9), 1)
+
         domain_vitals = VitalsSchema(
             heartrate=vitals.heartrate,
             resprate=vitals.resprate,
-            temperature=vitals.temperature,
+            temperature=temp_celsius,
             o2sat=vitals.o2sat,
             sbp=vitals.sbp,
             dbp=vitals.dbp,
             avpu=vitals.avpu,
-            acvpu=vitals.acvpu,
+            acvpu=final_acvpu,
             supplemental_oxygen=vitals.supplemental_oxygen,
             acuity=vitals.acuity
         )
@@ -95,7 +106,7 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
         }
         
         if vitals:
-             print(f"✅ Extraction Complete. Vitals Vlaues: {vitals.model_dump()}")
+             print(f"✅ Extraction Complete. Processed Vitals: {domain_vitals.model_dump()}")
         else:
              print("⚠️ No vitals object found in extracted data.")
 

@@ -8,8 +8,12 @@ class AuditorEvaluation(BaseModel):
     """
     
     protocol_reference: str = Field(..., description="Exact name of the protocol or paper utilized (e.g.: Sepsis-3 Guidelines).")
-    compliance: Literal["Compliant", "Non-Compliant", "Partial", "Inconclusive"] = Field(..., description="The judgement about \
-        the real state/conduct." )
+
+    clinical_risk_category: Literal['Low Risk / Stable', 'Medium Risk / Monitor', 'High Risk / Critical'] = Field(
+        ...,
+        description="Clinical Risk categorical classification based on the scores and findings."
+    )
+    
     evidence_quote: str = Field(..., description="Dicrect quote (ipsis litteris) of the recovered text that justify the judgement")
     clinical_suggestion: str = Field(..., description="Recommended action strictly based on the protocol.")
 

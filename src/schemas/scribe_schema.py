@@ -1,6 +1,5 @@
 from typing import List, Optional, Literal, Union, Any
-from pydantic import BaseModel, Field, field_validator, ValidationInfo
-import re
+from pydantic import BaseModel, Field
 
 # --- Enums e Tipos ---
 TypeAdmissionType = Literal['EMERGENCY', 'URGENT', 'ELECTIVE']
@@ -10,9 +9,9 @@ TypeACVPU = Literal['Alert', 'Confusion', 'Voice', 'Pain', 'Unresponsive']
 TypeChange = Literal['NEW_START', 'DOSE_INCREASE', 'DOSE_DECREASE', 'STOPPED', 'UNCHANGED']
 
 class RawVitalsLLM(BaseModel):
-    heartrate: Optional[int]
     resprate: Optional[int]
-    temperature: Optional[float]
+    heartrate: Optional[int]
+    temperature: Optional[float] 
     o2sat: Optional[int]
     supplemental_oxygen: Optional[bool]
     sbp: Optional[int]
