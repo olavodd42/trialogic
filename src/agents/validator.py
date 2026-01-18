@@ -1,7 +1,10 @@
 from typing import List, Literal, Dict, Any, Optional
 from langchain_core.messages import HumanMessage
 from src.state.agent_state import AgentState
-from src.schemas.scribe_schema import ScribeSchema
+from src.schemas.scribe_schema import RawScribeLLM
+import logging
+
+logger = logging.getLogger(__name__)
 
 def validator_router(state: AgentState) -> Literal["scribe", "supervisor"]:
     """
@@ -13,6 +16,7 @@ def validator_router(state: AgentState) -> Literal["scribe", "supervisor"]:
     """
     errors = state.get("validation_errors", [])
     attempts = state.get("attempts", 0)
+
     
     if errors and attempts < 3:
         return "scribe"
@@ -39,7 +43,7 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
     # Ensure data is a Pydantic object for dot notation access
     if isinstance(data, dict):
         try:
-            data = ScribeSchema(**data)
+            data = RawScribeLLM(**data)
         except Exception as e:
             return {"validation_errors": [f"Schema Validation Error: {e}"]}
 
@@ -47,11 +51,16 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
     errors: List[str] = []
     messages: List[HumanMessage] = []
 
-    vitals = None
-    labs = None
-    if data and data.clinical:
-        vitals = data.clinical.vitals
-        labs = data.clinical.labs
+    if not data:
+        logger.error("No data extracted")
+        return {"validation_errors": ["No extracted data found"]}
+
+    vitals = data.vitals
+
+    if not vitals:
+        logger.error("No vitals found")
+        return {"validation_errors": ["No vitals found"]}
+
 
     if vitals:
         sbp = vitals.sbp
@@ -60,13 +69,12 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
         hr = vitals.heartrate
         rr = vitals.resprate
         o2sat = vitals.o2sat
-        pain = vitals.pain
         acuity = vitals.acuity 
 
         if temp is not None and (temp <= 25.0 or temp >= 45.0):
-                msg = f"Temperature value {vitals.temperature} is physiologically improbable (Celsius range 25-45)."
-                errors.append(msg)
-                messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check units."))
+            msg = f"Temperature value {vitals.temperature} is physiologically improbable (Celsius range 25-45)."
+            errors.append(msg)
+            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check units."))
             
         if hr is not None and (hr < 0 or hr > 300):
             msg = f"Heart rate value {hr} is physiologically improbable."
@@ -92,79 +100,12 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
             msg = f"DBP value {dbp} is physiologically improbable."
             errors.append(msg)
             messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-            
-        if pain is not None and (pain < 0 or pain > 10):
-            msg = f"Pain value {pain} is technically impossible (0-10)."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-            
+
         if acuity is not None and (acuity < 1 or acuity > 5):
             msg = f"Acuity value {acuity} is impossible (ESI is 1-5)."
             errors.append(msg)
             messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
             
-    if labs:
-        potassium = labs.potassium
-        sodium = labs.sodium
-        creatinine = labs.creatinine
-        wbc = labs.wbc
-        platelets = labs.platelets
-        inr = labs.inr
-        albumin = labs.albumin
-        bilirubin = labs.bilirubin
-        ast = labs.ast
-        alt = labs.alt
-
-        if potassium is not None and (potassium < 0.5 or potassium > 12.0):
-            msg = f"Potassium concentration {potassium} is physiologically improbable."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-        
-        if sodium is not None and (sodium < 80.0 or sodium > 200.0):
-            msg = f"Sodium concentration {sodium} is physiologically improbable."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-        
-        if creatinine is not None and (creatinine < 0.1 or creatinine > 40.0):
-            msg = f"Creatinine concentration {creatinine} is physiologically improbable."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-            
-        if wbc is not None and (wbc < 0 or wbc > 500):
-            msg = f"WBC concentration {wbc} is physiologically improbable."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-        
-        if platelets is not None and (platelets < 0 or platelets > 2000):
-            msg = f"Platelets concentration {platelets} is physiologically improbable."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-
-        if inr is not None and (inr < 0.5 or inr > 30.0):
-            msg = f"INR value {inr} is physiologically improbable."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-            
-        if albumin is not None and (albumin < 0.5 or albumin > 7.0):
-            msg = f"Albumin concentration {albumin} is physiologically improbable."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-            
-        if bilirubin is not None and (bilirubin < 0.1 or bilirubin > 80):
-            msg = f"Bilirubin concentration {bilirubin} is physiologically improbable."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-
-        if ast is not None and (ast < 0 or ast > 20000):
-            msg = f"AST concentration {ast} is physiologically improbable."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-
-        if alt is not None and (alt < 0 or alt > 20000):
-            msg = f"ALT concentration {alt} is physiologically improbable."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-    
     return {
         "validation_errors": errors,
         "validation_messages": messages

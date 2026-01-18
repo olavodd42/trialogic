@@ -1,6 +1,6 @@
 
 from typing import List, Any, TypedDict, Optional
-from src.schemas.scribe_schema import ScribeSchema
+from src.schemas.scribe_schema import RawScribeLLM
 from src.schemas.input_schema import InputSchema
 
 
@@ -30,7 +30,7 @@ class AgentState(TypedDict, total=False):
     """
  
     input: Optional[InputSchema]              # O input bruto da triagem
-    extracted_data: Optional[ScribeSchema] # O JSON validado (SinaisVitais)
+    extracted_data: Optional[RawScribeLLM] # O JSON validado (SinaisVitais)
     validation_errors: List[Optional[str]]   # Mensagem de erro do Pydantic (se houver)
     validation_messages: List[Any]
     attempts: int

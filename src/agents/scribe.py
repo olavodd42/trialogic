@@ -7,7 +7,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from dotenv import load_dotenv
 
 from src.state.agent_state import AgentState
-from src.schemas.scribe_schema import ScribeSchema
+from src.schemas.scribe_schema import RawScribeLLM, VitalsSchema, ClinicalSchema
 from src.schemas.input_schema import InputSchema
 
 load_dotenv()
@@ -20,7 +20,7 @@ llm = ChatOllama(
     temperature=0,
     seed=42
 )
-scribe_model = llm.with_structured_output(ScribeSchema)
+scribe_model = llm.with_structured_output(RawScribeLLM)
 
 # Load Prompt
 prompt_path = os.path.join(os.getcwd(), "prompts", "scribe_prompt.md")
@@ -30,6 +30,7 @@ try:
 except FileNotFoundError:
     logger.warning("Scribe prompt not found. Using default.")
     SCRIBE_SYSTEM_PROMPT = "You are a clinical extraction specialist."
+
 
 def scribe_node(state: AgentState) -> Dict[str, Any]:
     """
@@ -53,6 +54,7 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
         logger.warning("Scribe received empty input.")
         print("⚠️ Warning: Empty input for Scribe.")
         return {"validation_errors": ["Empty input text"]}
+    
     print(input_data)
     # 2. Invoke LLM
     try:
@@ -66,21 +68,32 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
         
         response = scribe_model.invoke(messages)
 
-        print(response)
-        
-        # 3. Process Output
-        # Convert Pydantic model to dict
-        output_data = response
-        # vitals_found = output_data.clinical.vitals
+        vitals = response.vitals
+        if not vitals:
+            logger.error("'response' has no attribute 'vitals'")
+
+        print("DEBUG raw_vitals:", vitals.model_dump() if vitals else None)
+        domain_vitals = VitalsSchema(
+            heartrate=vitals.heartrate,
+            resprate=vitals.resprate,
+            temperature=vitals.temperature,
+            o2sat=vitals.o2sat,
+            sbp=vitals.sbp,
+            dbp=vitals.dbp,
+            avpu=vitals.avpu,
+            acvpu=vitals.acvpu,
+            supplemental_oxygen=vitals.supplemental_oxygen,
+            acuity=vitals.acuity
+        )
+
+        clinical_data = ClinicalSchema(chief_complaint=response.chief_complaint, vitals=domain_vitals)
         
         updates = {
-            "extracted_data": output_data,
+            "extracted_data": clinical_data,
             "validation_errors": [],
             "attempts": state.get("attempts", 0) + 1,
         }
         
-        # Log success details
-        vitals = output_data.clinical.vitals
         if vitals:
              print(f"✅ Extraction Complete. Vitals Vlaues: {vitals.model_dump()}")
         else:

@@ -14,10 +14,10 @@ Process unstructured clinical narratives to populate a strict, hierarchical JSON
     - **NO DEFAULTING**: If a value is missing, strictly return `null`.
 
 2. **Vital Signs Extraction Rules (CRITICAL)**:
+    - **EXTRACT NUMBERS ONLY**: Do NOT include units. E.g. "39.2 C" -> 39.2, "24 rpm" -> 24.
     - **Temperature**:
         - Look for keywords: "Temp", "T", "Temperature", "Tc".
-        - Accept formats: "39.2"
-        - **Action**: Convert to Float (Celsius). If input is "98.6 F", convert to 37.0.
+        - Accept formats: "39.2".
     - **Blood Pressure (BP)**:
         - Look patterns like "120/80", "120 over 80".
         - Split into `sbp` (systolic) and `dbp` (diastolic).
@@ -109,11 +109,11 @@ Process unstructured clinical narratives to populate a strict, hierarchical JSON
 - SpO2: 94% on RA"
 
 **Reasoning:**
-- HR: Found "- HR: 115 bpm" -> heartrate=115.
-- BP: Found "- BP: 85/50" -> sbp=85, dbp=50.
-- Temp: Found "- Temp: 39.2 C" -> temperature=39.2.
-- RR: Found "- RR: 24 rpm" -> resprate=24.
-- SpO2: Found "- SpO2: 94%" -> o2sat=94.
+- HR: Found "- HR: 115 bpm". Extract 115.
+- BP: Found "- BP: 85/50". Extract 85 and 50.
+- Temp: Found "- Temp: 39.2 C". Extract 39.2. Ignore "C".
+- RR: Found "- RR: 24 rpm". Extract 24.
+- SpO2: Found "- SpO2: 94%". Extract 94.
 
 **Expected JSON Output:**
 ```json

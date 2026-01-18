@@ -67,7 +67,6 @@ def get_vectorstore():
         logger.error(f"Failed to initialize VectorStore: {e}")
         raise e
 
-# --- MODELO DE QUERY (ULTRA OTIMIZADO) ---
 query_llm = ChatOllama(
     base_url="http://localhost:11434",
     model="llama3.1",
@@ -132,9 +131,9 @@ def clinical_rag_node(state: AgentState) -> Dict[str, Any]:
     vitals_raw = {}
     
     if hasattr(extracted_data, "extracted_vitals"):
-        vitals_raw = extracted_data.extracted_vitals
+        vitals_raw = extracted_data.vitals
     elif isinstance(extracted_data, dict):
-        vitals_raw = extracted_data.get("extracted_vitals", {})
+        vitals_raw = extracted_data.get("vitals", {})
 
     # Ensure dict format if it's a model
     if hasattr(vitals_raw, "model_dump"):

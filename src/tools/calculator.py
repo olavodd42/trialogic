@@ -1,7 +1,7 @@
 import logging
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
-from src.schemas.scribe_schema import VitalsSchema
+from src.schemas.scribe_schema import RawVitalsLLM, VitalsSchema
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class VitalSignCalculator:
         return value
 
     @staticmethod
-    def calculate_news(vitals: VitalsSchema) -> ScoreBreakdown:
+    def calculate_news(vitals: RawVitalsLLM | VitalsSchema) -> ScoreBreakdown:
         score = 0
         breakdown = {}
         missing_fields = []

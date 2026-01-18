@@ -56,26 +56,17 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
         if not data:
             raise ValueError("No extracted_data found in state")
 
-        # Handle Pydantic model vs Dict
-        if hasattr(data, "clinical"):
-            clinical_data = data.clinical
-        elif isinstance(data, dict):
-             clinical_data = data.get("clinical", {})
-        else:
-             raise ValueError(f"Unexpected data type for extracted_data: {type(data)}")
-
         # Handle specific schema access
-        if hasattr(clinical_data, "vitals"):
-            vitals_data = clinical_data.vitals
-        elif isinstance(clinical_data, dict):
-            vitals_data = clinical_data.get("vitals")
+        if hasattr(data, "vitals"):
+            vitals_data = data.vitals
+        elif isinstance(data, dict):
+            vitals_data = data.get("vitals")
         else:
             vitals_data = None
             
-        print(f"DEBUG: Vitals Data Type: {type(vitals_data)}")
 
         if not vitals_data:
-            logger.error("clinical_data has no attribute 'vitals'.")
+            logger.error("data has no attribute/key 'vitals'.")
             return {"risk_score_report": "Error: Missing Vitals"}
 
         # 2. Execução Determinística (Tool Usage via Python direto)
