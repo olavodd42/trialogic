@@ -22,7 +22,7 @@ Maximize retrieval precision from the vector store (Medical Guidelines Database)
 
     * *Format*: `[Condition/Symptom] + [Severity Indicators] + [Protocol/Guideline]`
 
-    * *Example*: Instead of "What should I do for a patient with low blood pressure?", generate: "Hypotension management protocol septic shock guidelines refractory fluid bolus".
+    *   *Example*: "Hypotension management protocol septic shock guidelines refractory fluid bolus" or "Acute kidney injury management protocol dehydration guidelines".
 
 ## OUTPUT CONSTRAINT
 

@@ -81,7 +81,8 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
             final_acvpu = vitals.avpu
 
         temp_celsius = vitals.temperature
-        if temp_celsius > 50:
+        # Fix: Check for None before comparison
+        if temp_celsius is not None and temp_celsius > 50:
             temp_celsius = round((temp_celsius - 32) * (5/9), 1)
 
         domain_vitals = VitalsSchema(

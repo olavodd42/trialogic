@@ -53,12 +53,12 @@ def main():
                 extracted_data = final_state.get("extracted_data")
                 extracted_vitals = None
                 if extracted_data:
-                    if hasattr(extracted_data, "clinical"):
+                    if hasattr(extracted_data, "vitals"):
                          # Pydantic model access
-                         extracted_vitals = extracted_data.clinical.vitals.model_dump()
+                         extracted_vitals = extracted_data.vitals.model_dump()
                     elif isinstance(extracted_data, dict):
                          # Dictionary access
-                         extracted_vitals = extracted_data.get("clinical", {}).get("vitals")
+                         extracted_vitals = extracted_data.get("vitals")
 
                 result_record = {
                     "subject_id": subject_id,

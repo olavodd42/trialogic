@@ -113,7 +113,6 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
         print("⏳ Calling LLM for Risk Analysis...")
         response = mathematician_model.invoke(messages)
         result_data = response.model_dump()
-        
         # Injetamos o resultado bruto para auditoria
         result_data["calculated_raw"] = results
         
@@ -125,6 +124,7 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
         print(f"✅ Mathematician Complete.")
         
         return {
+            "extracted_data": data,
             "risk_score_report": simple_report,
             "risk_analysis": result_data 
         }

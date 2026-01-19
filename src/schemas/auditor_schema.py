@@ -1,27 +1,43 @@
 from pydantic import BaseModel, Field
-from typing import Literal
-
-class AuditorEvaluation(BaseModel):
-    """
-    Represents the structured evaluation result produced by the Clinical Auditor agent,
-    detailing compliance with official medical protocols.
-    """
-    
-    protocol_reference: str = Field(..., description="Exact name of the protocol or paper utilized (e.g.: Sepsis-3 Guidelines).")
-
-    clinical_risk_category: Literal['Low Risk / Stable', 'Medium Risk / Monitor', 'High Risk / Critical'] = Field(
-        ...,
-        description="Clinical Risk categorical classification based on the scores and findings."
-    )
-    
-    evidence_quote: str = Field(..., description="Dicrect quote (ipsis litteris) of the recovered text that justify the judgement")
-    clinical_suggestion: str = Field(..., description="Recommended action strictly based on the protocol.")
+from typing import Optional, List, Literal
 
 class AuditorOutput(BaseModel):
     """
-    Container for the full output of the Auditor process, including search metadata
-    and the final clinical evaluation decision.
+    Estrutura final de decisão clínica auditável.
+    Projetado para garantir rastreabilidade entre dados, regras e decisão.
     """
-    search_query_used: str
-    retrieved_context_summary: str
-    evaluation: AuditorEvaluation
+    
+    protocol_reference: str = Field(
+        ..., 
+        description="Exact name of the protocol used as base (ex: NEWS2, Sepsis-3, Manchester)."
+    )
+    
+    clinical_risk_category: Literal['Low Risk', 'Medium Risk / Monitor', 'High Risk / Emergency', 'Critical / Resuscitation'] = Field(
+        ...,
+        description="Standardized risk category based on computed score and clinical context."
+    )
+    
+    calculated_score_audit: str = Field(
+        ...,
+        description="Text confirmation of received score (e.g.: 'NEWS2 Score of 5 verified')."
+    )
+    
+    evidence_quote: str = Field(
+        ...,
+        description="Direct and exact citation of the text retrieved by RAG that justifies the suggested conduct."
+    )
+    
+    clinical_suggestion: str = Field(
+        ...,
+        description="Recommendation of immediate action for the medical/nursing team, concise and direct."
+    )
+    
+    reasoning_trace: str = Field(
+        ...,
+        description="Chain of Thought resumed: Data + Rule = Conclusion."
+    )
+
+    missing_info_warning: Optional[str] = Field(
+        None,
+        description="Warning about crucial data that were absent on original inputl (e.g.: 'Lactate not reported.')."
+    )

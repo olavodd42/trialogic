@@ -7,7 +7,7 @@ from difflib import SequenceMatcher
 from dotenv import load_dotenv
 
 from src.state.agent_state import AgentState
-from src.schemas.auditor_schema import AuditorEvaluation
+from src.schemas.auditor_schema import AuditorOutput
 
 load_dotenv()
 
@@ -82,7 +82,7 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
         temperature=0,
         seed=SEED
     )
-    structured_llm = llm.with_structured_output(AuditorEvaluation)
+    structured_llm = llm.with_structured_output(AuditorOutput)
 
     # --- CORREÇÃO DO BUG DO LANGCHAIN ---
     # Não usamos f-string aqui. Definimos placeholders {rules} e {patient}.
@@ -104,7 +104,7 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
 
     try:
         # Passamos as variáveis aqui. O LangChain cuida da injeção segura.
-        evaluation = cast(AuditorEvaluation, chain.invoke({
+        evaluation = cast(AuditorOutput, chain.invoke({
             "rules": full_context_content,
             "patient": full_patient_content
         }))
@@ -146,3 +146,4 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
                 "protocol_reference": "Error"
             }
         }
+    
