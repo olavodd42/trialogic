@@ -1,5 +1,5 @@
 import re
-from typing import Optional
+from typing import Optional, Union
 
 def extract_number(text: str) -> Optional[float]:
     if not text:
@@ -7,17 +7,23 @@ def extract_number(text: str) -> Optional[float]:
     match = re.search(r"-?\d+(\.\d+)?", text)
     return float(match.group(0)) if match else None
 
-def normalize_temperature(raw: Optional[str]) -> Optional[float]:
+def normalize_temperature(raw: Union[str, float, int, None]) -> Optional[float]:
     """
     Normaliza temperatura para Celsius.
     Regras:
     - Se contiver 'F' ou valor > 45 → assume Fahrenheit
     - Caso contrário → assume Celsius
     """
-    if not raw:
+    if raw is None:
         return None
 
-    raw = raw.strip()
+    if isinstance(raw, (int, float)):
+        val = float(raw)
+        if val > 45:
+             val = (val - 32) * 5.0 / 9.0
+        return round(val, 1)
+
+    raw = str(raw).strip()
     value = extract_number(raw)
     if value is None:
         return None

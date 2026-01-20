@@ -1,7 +1,7 @@
 import sys
 import os
 import json
-import polars as pl
+import pandas as pd
 from tqdm import tqdm # Barra de progresso
 
 # Setup de Path
@@ -24,20 +24,22 @@ def main():
         print(f"Erro: Create the file {INPUT_CSV} first (use filter scripts).")
         return
     
-    df = pl.read_csv(INPUT_CSV)
+    df = pd.read_csv(INPUT_CSV)
     # df = df.sample(10, seed=SEED)
+
+    df = df.head(3)
     print(f"🧪 Start batch experiment with {len(df)} cases.")
 
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
     # 2. Processing loop
     with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
-        for row in tqdm(df.iter_rows(named=True), total=len(df), desc="Processing Agents"):
+        for row in tqdm(df.to_dict(orient="records"), total=len(df), desc="Processing Agents"):
             subject_id = row['subject_id']
             hadm_id = row.get('hadm_id')
             text = row['text']
 
-            if len(text) < 50:
+            if len(str(text)) < 50:
                 continue
 
             input_obj = InputSchema(

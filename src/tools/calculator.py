@@ -1,7 +1,7 @@
 import logging
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
-from src.schemas.scribe_schema import RawVitalsLLM, VitalsSchema
+from src.schemas.scribe_schema import VitalsSchema
 
 logger = logging.getLogger(__name__)
 

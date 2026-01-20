@@ -34,18 +34,8 @@ except FileNotFoundError:
     logger.warning("Scribe prompt not found. Using default.")
     SCRIBE_SYSTEM_PROMPT = "You are a clinical extraction specialist."
 
-def force_span_format(span: str, llm_format: str) -> str:
-    """
-    Deterministic override: if explicit labels exist, force LABELED.
-    """
-    if re.search(r'\b(T|BP|HR|P|R|RR|O2|SpO2)\b', span):
-        return "LABELED"
-    if span.startswith("VS") or span.endswith("%") and not re.search(r'\b(T|BP|HR|P|R|O2)\b', span):
-        span_format = "UNLABELED_SEQUENCE"
-    return llm_format
 
-
-def parse_dense_vitals(seq: str, labeled) -> dict:
+def parse_dense_vitals(seq: str) -> dict:
     """
     Parses a dense sequence of vitals (T HR BP RR SpO2).
     Robust to commas, %, and extra text like 'RA'.
@@ -83,53 +73,30 @@ def parse_dense_vitals(seq: str, labeled) -> dict:
         logger.error(f"Error parsing dense vitals: {e}")
         return safe_defaults
 
-def heuristics_engine(span: str) -> Dict[str, Any]:
+def fallback_regex_extraction(span: str) -> Dict[str, Any]:
     """
-    Tech Lead: 'Safety Net'. Se o LLM falhar no JSON, 
-    usamos Regex determinístico no span capturado.
+    Fallback determinístico (Regex) caso o LLM encontre o texto mas falhe no parse.
+    Tech Lead Note: Isso é 'Safety Engineering'.
     """
     extracted = {}
     
-    # 1. BP Pattern (Maior prioridade, formato único)
-    bp_match = re.search(r'(\d{2,3})[/-](\d{2,3})', span)
+    # BP Regex (ex: 120/80)
+    bp_match = re.search(r'(\d{2,3})/(\d{2,3})', span)
     if bp_match:
         extracted['sbp'] = int(bp_match.group(1))
         extracted['dbp'] = int(bp_match.group(2))
         
-    # 2. Temp Pattern (Procura floats típicos)
-    # Aceita 36.5, 37.0, 98.6, 99
-    temp_matches = re.findall(r'\b(9[5-9]\.?\d?|10[0-4]\.?\d?|3[5-9]\.?\d?|4[0-2]\.?\d?)\b', span)
-    if temp_matches:
-        # Pega o primeiro que parece temperatura
-        extracted['temperature'] = float(temp_matches[0])
-
-    # 3. O2 Sat (Procura números perto de % ou > 85)
-    o2_explicit = re.search(
-        r'(?:O2|SpO2)\s*[:\-]?\s*(\d{2,3})\s*%?',
-        span,
-        re.IGNORECASE
-    )
-
-    o2_match = re.search(r'\b(8[5-9]|9\d|100)%?', span)
-    if o2_match:
-        val = int(o2_match.group(1).replace('%',''))
-        if 80 <= val <= 100:
-            extracted['o2sat'] = val
-
-    # 4. HR e RR (Difícil distinguir sem posição, tenta inferir pelo restante)
-    # Procura inteiros soltos que sobraram
-    integers = re.findall(r'\b(\d{2,3})\b', span)
-    candidates = [int(x) for x in integers if int(x) not in [extracted.get('sbp'), extracted.get('dbp'), extracted.get('o2sat')]]
-    
-    for cand in candidates:
-        if 50 <= cand <= 180 and 'heartrate' not in extracted:
-            extracted['heartrate'] = cand
-        elif 10 <= cand <= 40 and 'resprate' not in extracted:
-            extracted['resprate'] = cand
-
+    # Temp Regex (ex: 98.6 or 37.5)
+    temp_match = re.search(r'(?:T|Temp)[\s:.-]*(\d{2,3}\.?\d?)', span, re.IGNORECASE)
+    if temp_match:
+        extracted['temperature'] = float(temp_match.group(1))
+        
+    # HR Regex (ex: HR 80, P 80)
+    hr_match = re.search(r'(?:HR|Pulse|P)[\s:.-]*(\d{2,3})', span, re.IGNORECASE)
+    if hr_match:
+        extracted['heartrate'] = int(hr_match.group(1))
+        
     return extracted
-
-
 
 def scribe_node(state: AgentState) -> Dict[str, Any]:
     """
@@ -166,45 +133,46 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
         print(f"⏳ Calling LLM for Extraction (Input Size: {len(raw_note)} chars)...")
         
         response: RawScribeLLM = cast(RawScribeLLM, scribe_model.invoke(messages))
-        vitals = response.vitals
-        vitals.span_format = cast(Any, force_span_format(
-            vitals.vital_section_span or "",
-            vitals.span_format
-        ))
-        needs_repair = (
-            vitals.vital_section_span is not None and (
-                vitals.heartrate is None or
-                vitals.resprate is None or
-                vitals.temperature is None or
-                vitals.o2sat is None
-            )
-        )
+        extracted_data = response.dict()
+        print(extracted_data)
 
+        labeled_vitals = response.labeled_vitals
         
-        if needs_repair:
-            print(f"🔧 Repairing Extraction using Regex on span: '{vitals.vital_section_span}'")
-            repaired_data = heuristics_engine(vitals.vital_section_span)
-            
-            # Merge (Prioridade para o Regex se o LLM retornou None)
-            if vitals.heartrate is None: vitals.heartrate = repaired_data.get('heartrate')
-            if vitals.sbp is None: 
-                vitals.sbp = repaired_data.get('sbp')
-                vitals.dbp = repaired_data.get('dbp')
-            if vitals.resprate is None: vitals.resprate = repaired_data.get('resprate')
-            if vitals.temperature is None: vitals.temperature = repaired_data.get('temperature')
-            if vitals.o2sat is None or vitals.o2sat > 100 or vitals.o2sat <= 0: vitals.o2sat = repaired_data.get('o2sat')
+        sbp, dbp = None, None
+        vitals = None
+        temp, hr, bp, rr, o2sat = None, None, None, None, None
 
-        final_temp = normalize_temperature(vitals.temperature) if vitals.temperature else None
+        if response.unlabeled_vital_sequence:
+            vitals = parse_dense_vitals(response.unlabeled_vital_sequence)
+            temp = vitals["temperature"]
+            hr = vitals["heartrate"]
+            bp = vitals["bp"]
+            rr = vitals["resprate"]
+            o2sat = vitals["o2sat"]
 
-        # if bp and isinstance(bp, str) and "/" in bp:
-        #     splits = bp.split("/")
-        #     sbp = int(splits[0])
-        #     dbp = int(splits[1])
+        elif labeled_vitals:
+            vitals = labeled_vitals
+            temp = float(labeled_vitals["temperature"])
+            hr = int(labeled_vitals["heartrate"])
+            rr = int(labeled_vitals["resprate"])
+            o2sat = int(labeled_vitals["o2sat"])
+            bp = labeled_vitals.get("bp")
+
+        if temp and temp > 50:
+            temp = (temp - 32) * (5/9)
+
+        if bp and isinstance(bp, str) and "/" in bp:
+            splits = bp.split("/")
+            sbp = int(splits[0])
+            dbp = int(splits[1])
+
+        if not response.labeled_vitals and not response.unlabeled_vital_sequence:
+            logger.error("'response' has no 'labeled_vitals' and no 'unlabeled_vital_sequence'")
 
         print("DEBUG raw_vitals:", vitals if vitals else None)
         
         # Ensure ACVPU is set if AVPU is present
-        final_acvpu = vitals.acvpu
+        final_acvpu = response.acvpu
         avpu = None
         if final_acvpu is not None:
             if final_acvpu == "Confusion":
@@ -213,26 +181,22 @@ def scribe_node(state: AgentState) -> Dict[str, Any]:
                 avpu = final_acvpu
 
         domain_vitals = VitalsSchema(
-            heartrate=vitals.heartrate,
-            resprate=vitals.resprate,
-            temperature=final_temp,
-            o2sat=vitals.o2sat,
-            sbp=vitals.sbp,
-            dbp=vitals.dbp,
-            avpu=avpu, # Lógica complexa removida para simplificação
+            heartrate=hr,
+            resprate=rr,
+            temperature=round(temp, 1) if temp is not None else None,
+            o2sat=o2sat,
+            sbp=sbp,
+            dbp=dbp,
+            avpu=avpu,
             acvpu=final_acvpu,
-            supplemental_oxygen=vitals.supplemental_oxygen if vitals.supplemental_oxygen else False,
+            supplemental_oxygen=response.supplemental_oxygen,
             acuity=None
         )
 
-        clinical_output = ClinicalSchema(
-            chief_complaint=response.chief_complaint or "Not reported",
-            vitals=domain_vitals
-        )
-
-       
+        clinical_data = ClinicalSchema(chief_complaint=response.chief_complaint, vitals=domain_vitals)
+        
         updates = {
-            "extracted_data": clinical_output,
+            "extracted_data": clinical_data,
             "validation_errors": [],
             "attempts": state.get("attempts", 0) + 1,
         }
