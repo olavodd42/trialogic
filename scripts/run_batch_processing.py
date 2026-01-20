@@ -27,7 +27,7 @@ def main():
     df = pd.read_csv(INPUT_CSV)
     # df = df.sample(10, seed=SEED)
 
-    df = df.head(3)
+    df = df.head(5)
     print(f"🧪 Start batch experiment with {len(df)} cases.")
 
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)

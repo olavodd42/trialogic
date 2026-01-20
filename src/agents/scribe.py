@@ -1,255 +1,151 @@
-import os
 import logging
-import json
-import re
+import os
 from typing import Dict, Any, cast
-from langchain_ollama import ChatOllama
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage, HumanMessage
-from dotenv import load_dotenv
+from pydantic import ValidationError
 
-from src.state.agent_state import AgentState
 from src.schemas.scribe_schema import RawScribeLLM, VitalsSchema, ClinicalSchema
+from src.state.agent_state import AgentState
 from src.utils.vitals_normalizer import normalize_temperature
 
-load_dotenv()
+# Configuração de Logs
 logger = logging.getLogger(__name__)
 
-# LLM Setup
-llm = ChatOllama(
-    base_url="http://localhost:11434",
-    model="llama3.1", 
-    temperature=0,
-    seed=42,
-    num_predict=512
-)
-# scribe_model = llm
-scribe_model = llm.with_structured_output(RawScribeLLM)
-
-# Load Prompt
-prompt_path = os.path.join(os.getcwd(), "prompts", "scribe_prompt.md")
-try:
-    with open(prompt_path, "r", encoding="utf-8") as f:
-        SCRIBE_SYSTEM_PROMPT = f.read()
-except FileNotFoundError:
-    logger.warning("Scribe prompt not found. Using default.")
-    SCRIBE_SYSTEM_PROMPT = "You are a clinical extraction specialist."
-
-def force_span_format(span: str, llm_format: str) -> str:
+class ScribeAgent:
     """
-    Deterministic override: if explicit labels exist, force LABELED.
-    """
-    if re.search(r'\b(T|BP|HR|P|R|RR|O2|SpO2)\b', span):
-        return "LABELED"
-    if span.startswith("VS") or span.endswith("%") and not re.search(r'\b(T|BP|HR|P|R|O2)\b', span):
-        span_format = "UNLABELED_SEQUENCE"
-    return llm_format
-
-
-def parse_dense_vitals(seq: str, labeled) -> dict:
-    """
-    Parses a dense sequence of vitals (T HR BP RR SpO2).
-    Robust to commas, %, and extra text like 'RA'.
-    """
-    safe_defaults = {
-        "temperature": None,
-        "heartrate": None,
-        "bp": None,
-        "resprate": None,
-        "o2sat": None
-    }
+    Agente responsável pela extração e estruturação de dados clínicos (Scribe).
     
-    try:
-        # Pre-cleaning: Remove commas and '%'
-        clean = seq.replace(',', ' ').replace('%', ' ')
-        
-        # Tokenize and filter: Keep only things that look like numbers or BP (digits, ., /)
-        # This implicitly filters out 'RA', 'on', 'room', 'air', etc.
-        tokens = [t for t in clean.split() if re.match(r'^[\d/\.]+$', t)]
-        
-        if len(tokens) == 5:
-            temp, hr, bp, rr, spo2 = tokens
-            return {
-                "temperature": float(temp),
-                "heartrate": int(float(hr)), # float conversion safe for '71.0'
-                "bp": bp,
-                "resprate": int(float(rr)),
-                "o2sat": int(float(spo2))
-            }
-        
-        logger.warning(f"Could not parse dense vitals. Tokens found: {tokens} from '{seq}'")
-        return safe_defaults
-
-    except Exception as e:
-        logger.error(f"Error parsing dense vitals: {e}")
-        return safe_defaults
-
-def heuristics_engine(span: str) -> Dict[str, Any]:
+    Architecture Principle: Single Responsibility Principle (SRP)
+    Este agente tem apenas uma razão para mudar: a lógica de como extraímos dados do texto.
     """
-    Tech Lead: 'Safety Net'. Se o LLM falhar no JSON, 
-    usamos Regex determinístico no span capturado.
-    """
-    extracted = {}
-    
-    # 1. BP Pattern (Maior prioridade, formato único)
-    bp_match = re.search(r'(\d{2,3})[/-](\d{2,3})', span)
-    if bp_match:
-        extracted['sbp'] = int(bp_match.group(1))
-        extracted['dbp'] = int(bp_match.group(2))
-        
-    # 2. Temp Pattern (Procura floats típicos)
-    # Aceita 36.5, 37.0, 98.6, 99
-    temp_matches = re.findall(r'\b(9[5-9]\.?\d?|10[0-4]\.?\d?|3[5-9]\.?\d?|4[0-2]\.?\d?)\b', span)
-    if temp_matches:
-        # Pega o primeiro que parece temperatura
-        extracted['temperature'] = float(temp_matches[0])
 
-    # 3. O2 Sat (Procura números perto de % ou > 85)
-    o2_explicit = re.search(
-        r'(?:O2|SpO2)\s*[:\-]?\s*(\d{2,3})\s*%?',
-        span,
-        re.IGNORECASE
-    )
+    def __init__(self, model: BaseChatModel, prompt_path: str = "prompts/scribe_prompt.md"):
+        """
+        Injeção de Dependência: O modelo é passado no construtor.
+        Isso permite trocar Ollama por OpenAI/Anthropic sem tocar na classe.
+        """
+        self.model = model
+        self.system_prompt = self._load_prompt(prompt_path)
+        self.structured_model = self.model.with_structured_output(RawScribeLLM)
 
-    o2_match = re.search(r'\b(8[5-9]|9\d|100)%?', span)
-    if o2_match:
-        val = int(o2_match.group(1).replace('%',''))
-        if 80 <= val <= 100:
-            extracted['o2sat'] = val
+    def _load_prompt(self, path: str) -> str:
+        """Carrega o prompt do sistema de forma segura."""
+        try:
+            # Tech Lead Tip: Use caminhos absolutos baseados na raiz do projeto em produção
+            full_path = os.path.join(os.getcwd(), path)
+            with open(full_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            logger.error(f"CRITICAL: Prompt file not found at {path}")
+            raise RuntimeError(f"Scribe system prompt missing: {path}")
 
-    # 4. HR e RR (Difícil distinguir sem posição, tenta inferir pelo restante)
-    # Procura inteiros soltos que sobraram
-    integers = re.findall(r'\b(\d{2,3})\b', span)
-    candidates = [int(x) for x in integers if int(x) not in [extracted.get('sbp'), extracted.get('dbp'), extracted.get('o2sat')]]
-    
-    for cand in candidates:
-        if 50 <= cand <= 180 and 'heartrate' not in extracted:
-            extracted['heartrate'] = cand
-        elif 10 <= cand <= 40 and 'resprate' not in extracted:
-            extracted['resprate'] = cand
-
-    return extracted
-
-
-
-def scribe_node(state: AgentState) -> Dict[str, Any]:
-    """
-    Extracts structured clinical entities from the note.
-    UPDATED: Hoists 'vitals' to top-level state for easier access by downstream agents.
-    """
-    print("\n--- ✍️ NODE: SCRIBE ---")
-    
-    # 1. Get Input and extract text safely
-    input_data = state.get("input")
-    raw_note = ""
-    
-    if hasattr(input_data, "raw_text"):
-        raw_note = input_data.raw_text
-    elif isinstance(input_data, dict) and "raw_text" in input_data:
-        raw_note = input_data.get("raw_text", "")
-    elif isinstance(input_data, str):
-        raw_note = input_data
-        
-    if not raw_note:
-        logger.warning("Scribe received empty input.")
-        print("⚠️ Warning: Empty input for Scribe.")
-        return {"validation_errors": ["Empty input text"]}
-    
-    print(input_data)
-    # 2. Invoke LLM
-    try:
-        messages = [
-            SystemMessage(content=SCRIBE_SYSTEM_PROMPT),
-            HumanMessage(content=f"Clinical Note to Process:\n{raw_note}")
-        ]
-        
-        logger.info(f"Calling LLM for Extraction (Input Size: {len(raw_note)} chars)...")
-        print(f"⏳ Calling LLM for Extraction (Input Size: {len(raw_note)} chars)...")
-        
-        response: RawScribeLLM = cast(RawScribeLLM, scribe_model.invoke(messages))
-        vitals = response.vitals
-        vitals.span_format = cast(Any, force_span_format(
-            vitals.vital_section_span or "",
-            vitals.span_format
-        ))
-        needs_repair = (
-            vitals.vital_section_span is not None and (
-                vitals.heartrate is None or
-                vitals.resprate is None or
-                vitals.temperature is None or
-                vitals.o2sat is None
-            )
-        )
-
-        
-        if needs_repair:
-            print(f"🔧 Repairing Extraction using Regex on span: '{vitals.vital_section_span}'")
-            repaired_data = heuristics_engine(vitals.vital_section_span)
+    def _map_avpu(self, raw_acvpu: str) -> str:
+        """
+        Business Logic: Mapeamento de ACVPU para AVPU.
+        Encapsulado para facilitar testes unitários.
+        """
+        # Normalização simples
+        if not raw_acvpu:
+            return "Alert" # Default seguro, mas deve ser auditado
             
-            # Merge (Prioridade para o Regex se o LLM retornou None)
-            if vitals.heartrate is None: vitals.heartrate = repaired_data.get('heartrate')
-            if vitals.sbp is None: 
-                vitals.sbp = repaired_data.get('sbp')
-                vitals.dbp = repaired_data.get('dbp')
-            if vitals.resprate is None: vitals.resprate = repaired_data.get('resprate')
-            if vitals.temperature is None: vitals.temperature = repaired_data.get('temperature')
-            if vitals.o2sat is None or vitals.o2sat > 100 or vitals.o2sat <= 0: vitals.o2sat = repaired_data.get('o2sat')
-
-        final_temp = normalize_temperature(vitals.temperature) if vitals.temperature else None
-
-        # if bp and isinstance(bp, str) and "/" in bp:
-        #     splits = bp.split("/")
-        #     sbp = int(splits[0])
-        #     dbp = int(splits[1])
-
-        print("DEBUG raw_vitals:", vitals if vitals else None)
-        
-        # Ensure ACVPU is set if AVPU is present
-        final_acvpu = vitals.acvpu
-        avpu = None
-        if final_acvpu is not None:
-            if final_acvpu == "Confusion":
-                avpu = "Alert"
-            elif final_acvpu in {"Alert", "Voice", "Pain", "Unresponsive"}:
-                avpu = final_acvpu
-
-        domain_vitals = VitalsSchema(
-            heartrate=vitals.heartrate,
-            resprate=vitals.resprate,
-            temperature=final_temp,
-            o2sat=vitals.o2sat,
-            sbp=vitals.sbp,
-            dbp=vitals.dbp,
-            avpu=avpu, # Lógica complexa removida para simplificação
-            acvpu=final_acvpu,
-            supplemental_oxygen=vitals.supplemental_oxygen if vitals.supplemental_oxygen else False,
-            acuity=None
-        )
-
-        clinical_output = ClinicalSchema(
-            chief_complaint=response.chief_complaint or "Not reported",
-            vitals=domain_vitals
-        )
-
-       
-        updates = {
-            "extracted_data": clinical_output,
-            "validation_errors": [],
-            "attempts": state.get("attempts", 0) + 1,
+        mapping = {
+            "Confusion": "Alert",
+            "Alert": "Alert",
+            "Voice": "Voice",
+            "Pain": "Pain",
+            "Unresponsive": "Unresponsive"
         }
+        return mapping.get(raw_acvpu, "Alert") # Default fallback
+
+    def process(self, state: AgentState) -> Dict[str, Any]:
+        """
+        Executa o pipeline de extração.
         
-        if vitals:
-             print(f"✅ Extraction Complete. Processed Vitals: {domain_vitals.model_dump()}")
-        else:
-             print("⚠️ No vitals object found in extracted data.")
-
+        Args:
+            state: O estado atual do grafo (LangGraph state).
         
-        return updates
+        Returns:
+            Um dicionário com as atualizações para o estado (updates).
+        """
+        clinical_text = ""
+        input_data = state.get("input")
+        
+        if input_data:
+             # InputSchema is a Pydantic model
+             if hasattr(input_data, "raw_text"):
+                 clinical_text = input_data.raw_text
+             elif isinstance(input_data, dict):
+                 clinical_text = input_data.get("raw_text", "")
 
-    except Exception as e:
-        logger.error(f"Scribe extraction failed: {e}")
-        print(f"❌ Scribe Error: {e}")
+        # Fallback for compatibility/testing
+        if not clinical_text:
+             # Using get on TypedDict with unknown key might be flagged, but at runtime it works if dict
+             clinical_text = state.get("clinical_text", "") # type: ignore
 
-        return {
-            "validation_errors": [str(e)],
-            "attempts": state.get("attempts", 0) + 1
-        }
+        if not clinical_text:
+            logger.warning("Scribe received empty clinical text.")
+            return {"error": "Empty input text"}
+
+        messages = [
+            SystemMessage(content=self.system_prompt),
+            HumanMessage(content=f"INPUT NOTES:\n{clinical_text}")
+        ]
+
+        try:
+            logger.info("Invoking Scribe Model...")
+            # A mágica acontece aqui. O Pydantic já valida tipos básicos.
+            response: RawScribeLLM = cast(RawScribeLLM, self.structured_model.invoke(messages))
+            
+            # --- Domain Mapping Layer ---
+            # Transformando o DTO (Data Transfer Object) do LLM no Modelo de Domínio
+            vitals = response.vitals
+            print(f"[DEBUG] VITALS: {vitals}")
+            
+            # Aplicando lógica de negócios (Ex: AVPU)
+            final_acvpu = vitals.acvpu
+            avpu_mapped = self._map_avpu(final_acvpu)
+            
+            domain_vitals = VitalsSchema(
+                heartrate=vitals.heartrate,
+                resprate=vitals.resprate,
+                temperature=normalize_temperature(vitals.temperature) if vitals.temperature else None, # O validator do Pydantic já deve ter normalizado
+                o2sat=vitals.o2sat,
+                sbp=vitals.sbp,
+                dbp=vitals.dbp,
+                avpu=avpu_mapped,
+                acvpu=final_acvpu,
+                supplemental_oxygen=vitals.supplemental_oxygen or False,
+                acuity=None 
+            )
+
+            clinical_output = ClinicalSchema(
+                chief_complaint=response.chief_complaint or "Not reported",
+                vitals=domain_vitals
+            )
+            print(clinical_output)
+
+            logger.info(f"Extraction Successful. HR: {domain_vitals.heartrate}, BP: {domain_vitals.sbp}/{domain_vitals.dbp}")
+
+            return {
+                "extracted_data": clinical_output,
+                "validation_errors": [], # Limpa erros anteriores se houver retry
+                "attempts": state.get("attempts", 0) + 1,
+                "is_success": True
+            }
+
+        except ValidationError as e:
+            # Captura erros de validação do Pydantic que o modelo não conseguiu resolver
+            logger.warning(f"Validation Error in Scribe: {str(e)}")
+            return {
+                "validation_errors": [str(e)],
+                "attempts": state.get("attempts", 0) + 1,
+                "is_success": False
+            }
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in Scribe Agent: {e}", exc_info=True)
+            return {
+                "error": str(e),
+                "is_success": False
+            }
