@@ -263,6 +263,32 @@ class RawVitalsLLM(BaseModel):
 class RawScribeLLM(BaseModel):
     chief_complaint: Optional[str]
     vitals: RawVitalsLLM
+
+    @model_validator(mode="after")
+    def validate_clinical_consistency(self):
+        """
+        AUDITORIA CLÍNICA (Cross-Check):
+        Verifica consistência semântica entre Queixa Principal e Vitais.
+        """
+        if not self.chief_complaint or not self.vitals.acvpu:
+            return self
+
+        cc_lower = self.chief_complaint.lower()
+        acvpu_val = self.vitals.acvpu
+
+        # Regra: Se a queixa é CONFUSÃO, o ACVPU deveria idealmente refletir isso ou ser investigado.
+        # "Confusion" no ACVPU é um estado específico.
+        if "confusion" in cc_lower or "confused" in cc_lower or "disoriented" in cc_lower:
+            if acvpu_val == "Alert":
+                logger.warning(
+                    f"CLINICAL MISMATCH WARNING: Chief Complaint indicates '{self.chief_complaint}', "
+                    f"but ACVPU is '{acvpu_val}'. Verify if patient is Alert but Disoriented."
+                )
+                # Nota para TCC: Não alteramos o dado automaticamente para evitar 
+                # corrupção de dados (pode ser que o paciente melhorou), mas logamos para revisão.
+        
+        return self
+    
 class ClinicalSchema(BaseModel):
     chief_complaint: str = Field(..., description="Main reason for admission (brief)")
     vitals: VitalsSchema
