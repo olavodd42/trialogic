@@ -11,9 +11,9 @@ from src.main import create_workflow
 from src.schemas.input_schema import InputSchema
 import logging
 logging.basicConfig(
-    level=logging.WARNING,
+    level=logging.INFO,
     format='%(levelname)s - %(message)s',
-    datefmt='%H:%M:%S'
+    # datefmt='%H:%M:%S'
 )
 logger = logging.getLogger(__name__)
 
