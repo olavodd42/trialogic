@@ -16,9 +16,13 @@ from src.agents.validator import validator_node, validator_router
 from src.agents.mathematician import mathematician_node
 from src.agents.clinical_rag import clinical_rag_node
 from src.agents.synthesizer import synthesizer_node
+import logging
+
+logger = logging.getLogger(__name__)
 
 def create_workflow():
     # --- LLM SETUP ---
+    logger.info("Creating workflow...")
     # Init LLM for Scribe (Dependency Injection)
     llm = ChatOllama(model="llama3.1", temperature=0, seed=42)
     scribe_agent = ScribeAgent(model=llm)

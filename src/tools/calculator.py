@@ -27,6 +27,7 @@ class ClinicalCalculator:
 
     @staticmethod
     def calculate_news(vitals: dict) -> dict:
+        logger.debug("Calculating NEWS2 score...")
         score = 0
         breakdown = {}
 
@@ -92,8 +93,6 @@ class ClinicalCalculator:
             breakdown['heartrate'] = s
 
         # 7. Consciousness (ACVPU)
-        # Mapeamento simplificado do extrator para NEWS2
-        # Alert = 0, New Confusion/Voice/Pain/Unresponsive = 3
         acvpu = vitals.get('acvpu', 'Alert').lower()
         avpu = vitals.get('avpu', 'Alert').lower()
         
@@ -105,6 +104,8 @@ class ClinicalCalculator:
         score += s
         breakdown['consciousness'] = s
 
+        logger.info(f"NEWS2 score calculated succesfully: {score}")
+
         return {
             "score": score,
             "breakdown": breakdown,
@@ -113,10 +114,7 @@ class ClinicalCalculator:
 
     @staticmethod
     def calculate_mews(vitals: dict) -> dict:
-        """
-        Modified Early Warning Score (MEWS).
-        FIX: Corrected AVPU scoring logic.
-        """
+        logger.debug("Calculating MEWS score...")
         score = 0
         breakdown = {}
 
@@ -159,34 +157,30 @@ class ClinicalCalculator:
         if temp is not None:
             if temp < 35: s = 2
             elif 35 <= temp <= 38.4: s = 0
-            elif 38.5 <= temp < 39: s = 1 # Note: MEWS thresholds vary slightly, standardizing here.
+            elif 38.5 <= temp < 39: s = 1 
             else: s = 2
             score += s
             breakdown['temperature'] = s
 
-        # 5. AVPU (Neuro) - CORREÇÃO APLICADA
-        # Alert = 0
-        # Voice = 1 (Includes new confusion in some variations, strictly response to voice)
-        # Pain = 2
-        # Unresponsive = 3
+        # 5. AVPU (Neuro)
         
         avpu_raw = vitals.get('avpu', 'Alert').lower()
-        acvpu_raw = vitals.get('acvpu', 'Alert').lower() # Check ACVPU too just in case
+        acvpu_raw = vitals.get('acvpu', 'Alert').lower() 
 
         if avpu_raw == 'alert' and acvpu_raw == 'alert':
             s = 0
         elif avpu_raw == 'voice' or acvpu_raw == 'confusion': 
-            # Se responde a voz OU tem confusão mental aguda (proxy para alteração nível consciência)
             s = 1 
         elif avpu_raw == 'pain':
             s = 2
         elif avpu_raw == 'unresponsive':
             s = 3
         else:
-            s = 0 # Default to alert if unknown, or flag error? For MVP, default 0 safe-ish.
+            s = 0 
 
         score += s
         breakdown['avpu'] = s
+        logger.info(f"MEWS score calculated succesfully: {score}")
 
         return {
             "score": score,
@@ -203,11 +197,10 @@ def calculate_clinical_score(vitals: dict, score_name: str) -> str:
         elif score_name == "MEWS":
             result = ClinicalCalculator.calculate_mews(vitals)
         else:
-            return "ERRO: Score não suportado."
-        
-        # Ajuste para lidar com o retorno dicionário das funções de cálculo
+            logger.error("Non-supported score.")
+            return "ERRO: Non-supported score."
+
         if isinstance(result, dict):
-             # As funções calculate_news/mews retornam dict com chaves "score", "breakdown", "risk"
             total_score = result.get("score")
             breakdown = result.get("breakdown", {})
             risk = result.get("risk", "Unknown")
@@ -219,16 +212,19 @@ def calculate_clinical_score(vitals: dict, score_name: str) -> str:
                 f"RISK: {risk}\n"
             )
             return output
-        
-        # Fallback caso o retorno seja um objeto (futuro)
+
         if hasattr(result, "status") and result.status == "INSUFFICIENT_DATA":
+            logger.warning(
+                f"STATUS: INSUFFICIENT DATA for {score_name}\n"
+                f"MISSING FIELDS: {result.assumptions_used}\n"
+                f"ACTION: Please search patient history or request vitals check."
+            )
             return (
                 f"STATUS: INSUFFICIENT DATA for {score_name}\n"
                 f"MISSING FIELDS: {result.assumptions_used}\n"
                 f"ACTION: Please search patient history or request vitals check."
             )
         
-        # Lógica original caso seja objeto
         status_tag = "[ESTIMATED]" if getattr(result, "is_estimate", False) else "[CONFIRMED]"
         total_score = getattr(result, "total_score", getattr(result, "score", "N/A"))
         breakdown = getattr(result, "breakdown", {})

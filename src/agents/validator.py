@@ -20,6 +20,7 @@ def validator_router(state: AgentState) -> Literal["scribe", "supervisor"]:
     
     if errors and attempts < 3:
         return "scribe"
+    
     return "supervisor"
 
 def validator_node(state: AgentState) -> Dict[str, Any]:
@@ -36,29 +37,29 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
     Returns:
         dict: Updates to the state, specifically 'validation_errors' and 'validation_messages'.
     """
-    print("--- 🛡️ NODE: VALIDATOR ---")
+    logger.info("--- 🛡️ NODE: VALIDATOR ---")
 
     data = state.get("extracted_data")
     
-    # Ensure data is a Pydantic object for dot notation access
     if isinstance(data, dict):
         try:
             data = RawScribeLLM(**data)
         except Exception as e:
+            logger.error(f"❌Schema Validation Error: {e}")
             return {"validation_errors": [f"Schema Validation Error: {e}"]}
 
-    # Initialize error containers
+    # 1. Verify if there is any error.
     errors: List[str] = []
     messages: List[HumanMessage] = []
 
     if not data:
-        logger.error("No data extracted")
+        logger.error("❌No data extracted")
         return {"validation_errors": ["No extracted data found"]}
 
     vitals = data.vitals
 
     if not vitals:
-        logger.error("No vitals found")
+        logger.error("❌No vitals found")
         return {"validation_errors": ["No vitals found"]}
 
 
@@ -69,8 +70,8 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
         hr = vitals.heartrate
         rr = vitals.resprate
         o2sat = vitals.o2sat
-        acuity = vitals.acuity 
-
+ 
+        logger.debug("Validating vitals...")
         # Temperature Normalization and Validation
         if temp is not None:
             # Check for Fahrenheit-like values (e.g. > 45)
@@ -114,12 +115,10 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
             msg = f"DBP value {dbp} is physiologically improbable."
             errors.append(msg)
             messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
+        
+        if errors is None and messages is None:
+            logger.info("Data validated succesfully!")
 
-        if acuity is not None and (acuity < 1 or acuity > 5):
-            msg = f"Acuity value {acuity} is impossible (ESI is 1-5)."
-            errors.append(msg)
-            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
-            
     return {
         "extracted_data": data.model_dump(),
         "validation_errors": errors,

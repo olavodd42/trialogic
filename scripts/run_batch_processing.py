@@ -9,6 +9,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.main import create_workflow
 from src.schemas.input_schema import InputSchema
+import logging
+logger = logging.getLogger(__name__)
 
 SEED = 42
 
@@ -21,14 +23,13 @@ app = create_workflow()
 def main():
     # 1. Load data
     if not os.path.exists(INPUT_CSV):
-        print(f"Erro: Create the file {INPUT_CSV} first (use filter scripts).")
+        logger.error(f"❌ Create the file {INPUT_CSV} first (use filter scripts).")
         return
     
     df = pd.read_csv(INPUT_CSV)
-    # df = df.sample(10, seed=SEED)
 
     df = df.head(5)
-    print(f"🧪 Start batch experiment with {len(df)} cases.")
+    logger.debug(f"🧪 Start batch experiment with {len(df)} cases.")
 
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
@@ -56,10 +57,8 @@ def main():
                 extracted_vitals = None
                 if extracted_data:
                     if hasattr(extracted_data, "vitals"):
-                         # Pydantic model access
                          extracted_vitals = extracted_data.vitals.model_dump()
                     elif isinstance(extracted_data, dict):
-                         # Dictionary access
                          extracted_vitals = extracted_data.get("vitals")
 
                 result_record = {
@@ -72,11 +71,12 @@ def main():
                     "rag_context_used": len(final_state.get("context_text", "")) > 10 # Booleano simples se usou contexto
                 }
 
+                logger.info(f"Writing to json: {result_record}")
+
                 f.write(json.dumps(result_record) + "\n")
                 f.flush()
             except Exception as e:
-                print(f"\nEror on ID {subject_id}: {e}")
-                # Logar erro no arquivo também para não perder rastro
+                logger.error(f"\n❌Error on ID {subject_id}: {e}")
                 error_record = {"subject_id": subject_id, "hadm_id": hadm_id, "error": str(e)}
                 f.write(json.dumps(error_record) + "\n")
 

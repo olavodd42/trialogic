@@ -1,12 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Literal
 
-class AuditorOutput(BaseModel):
-    """
-    Estrutura final de decisão clínica auditável.
-    Projetado para garantir rastreabilidade entre dados, regras e decisão.
-    """
-    
+class AuditorOutput(BaseModel):    
     protocol_reference: str = Field(
         ..., 
         description="Exact name of the protocol used as base (ex: NEWS2, Sepsis-3, Manchester)."

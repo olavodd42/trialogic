@@ -1,6 +1,9 @@
 import os
 import pandas as pd
 import polars as pl
+import logging
+
+logger = logging.getLogger(__name__)
 
 def load_discharge_dataset(file_path: str | None = None, n: int | None = None) -> pl.DataFrame:
     """
@@ -36,16 +39,15 @@ def load_discharge_dataset(file_path: str | None = None, n: int | None = None) -
     """
 
     if file_path is None:
-        # Define o caminho padrão relativo à raiz do projeto
-        # Estrutura esperada: root/src/dataset/loader.py -> root/data/discharge.csv
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(os.path.dirname(current_dir))
         file_path = os.path.join(project_root, "data", "discharge.csv")
 
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Arquivo não encontrado: {file_path}")
+        logger.error(f"❌File not found: {file_path}")
+        raise FileNotFoundError(f"File not found {file_path}")
 
-    print(f"Carregando dataset de: {file_path}...")
+    logger.debug(f"Loading dataset from: {file_path}...")
     
     try:
         # Polars é otimizado para leitura rápida de arquivos grandes
@@ -53,10 +55,10 @@ def load_discharge_dataset(file_path: str | None = None, n: int | None = None) -
             df = pl.read_csv(file_path, n_rows=n)
         else:
             df = pl.read_csv(file_path)
-        print(f"Dataset carregado com sucesso! Dimensões: {df.shape}")
+        logger.info(f"Dataset loaded succesfully! Dimensions: {df.shape}")
         return df
     except Exception as e:
-        print(f"Erro ao carregar o dataset: {e}")
+        logger.error(f"❌Error loading the dataset: {e}")
         raise e
 
 ## DEBUG

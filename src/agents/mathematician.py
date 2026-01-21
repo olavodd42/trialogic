@@ -1,15 +1,15 @@
 import os
 import logging
 import json
+import traceback
 from typing import Dict, Any
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
-from pydantic import SecretStr
 from dotenv import load_dotenv
 
 from src.state.agent_state import AgentState
 from src.schemas.scribe_schema import VitalsSchema
-from src.tools.calculator import calculate_clinical_score 
+from src.tools.calculator import calculate_clinical_score
 from src.schemas.mathematician_schema import MathematicianSchema
 
 load_dotenv()
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 SEED = 42
 
-# 1. Configuração do LLM
+# 1. LLM Configuration
 llm = ChatOllama(
     base_url="http://localhost:11434",
     model="llama3.1",
@@ -40,21 +40,36 @@ except FileNotFoundError:
     MATHEMATICIAN_SYSTEM_PROMPT = "You are a clinical mathematician agent."
 
 
-import traceback
 
 def mathematician_node(state: AgentState) -> Dict[str, Any]:
     """
-    Agent responsible for deterministic calculation of clinical scores.
-    Refactored to handle nested state structures (clinical -> vitals).
+    Executes the Mathematician agent node responsible for calculating and analyzing clinical risk scores.
+
+    This function performs the following steps:
+    1.  **Data Extraction**: Retrieves vital signs data from the agent state, handling different data structures (objects or dictionaries).
+    2.  **Deterministic Calculation**: Uses the `calculate_clinical_score` tool to compute scores like NEWS (National Early Warning Score) and MEWS (Modified Early Warning Score) based on the extracted vitals. It handles potential calculation errors and missing data imputation warnings.
+    3.  **LLM Interpretation**: Invokes a structured LLM (Mathematician Model) to analyze the calculated scores, identify any data gaps (estimated scores), and provide an overall risk assessment.
+    4.  **Reporting**: Constructs a comprehensive report including raw calculations, analyzed interpretations, and risk assessments to be updated in the agent state.
+
+    Args:
+        state (AgentState): The current state of the agent, expected to contain 'extracted_data' with vital signs.
+
+    Returns:
+        Dict[str, Any]: A dictionary containing state updates, specifically:
+            - 'extracted_data': The original extracted clinical data (preserved).
+            - 'risk_score_report': A simple text summary of the calculated scores.
+            - 'risk_analysis': A detailed structured analysis including numeric scores, data quality notes, and risk synthesis.
+            - In case of error: Returns an error message in 'risk_score_report'.
     """
-    logger.info("--- Node: Mathematician Agent ---")
-    print("\n--- 🧮 NODE: MATHEMATICIAN ---")
+    # logger.info("--- Node: Mathematician Agent ---")
+    logger.info("\n--- 🧮 NODE: MATHEMATICIAN ---")
     
     try:
-        # 1. Recupera Vitais do Estado com Lógica de Fallback (Tech Lead Fix)
+        # 1. Retrieve vitals with fallback logic
         data = state.get("extracted_data")
         if not data:
-            raise ValueError("No extracted_data found in state")
+            logger.error("No extracted_data found in state")
+            return {"risk_score_report": "Error: Missing Data"}
 
         # Handle specific schema access
         if hasattr(data, "vitals"):
@@ -64,23 +79,21 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
         else:
             vitals_data = None
             
-
         if not vitals_data:
             logger.error("data has no attribute/key 'vitals'.")
             return {"risk_score_report": "Error: Missing Vitals"}
 
-        # 2. Execução Determinística (Tool Usage via Python direto)
+        # 2. Deterministic Execution (Tool Usage by direct Python)
         results = {}
         for score in ["NEWS", "MEWS"]:
-            # A ferramenta agora retorna string formatada com Warnings se houver imputação
             try:
-                results[score] = calculate_clinical_score(vitals_data, score)
+                logger.debug("Calculating scores via tool...")
+                results[score] = calculate_clinical_score(vitals_data.model_dump(), score)
             except Exception as e:
                 logger.error(f"Calculation Error {score}: {e}")
                 results[score] = f"Error calculating {score}: {str(e)}"
 
-        # 3. Invocação do Modelo para Interpretação (NLU)
-        # Safe dump for JSON
+        # 3. Model Invocation for Interpretation (NLU)
         vitals_json = "{}"
         if hasattr(vitals_data, "model_dump"):
             vitals_json = json.dumps(vitals_data.model_dump(), default=str)
@@ -110,18 +123,26 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
             HumanMessage(content=context_msg)
         ]
         
-        print("⏳ Calling LLM for Risk Analysis...")
+        # 4. Risk analysis by LLM
+        logger.debug("⏳ Calling LLM for Risk Analysis...")
         response = mathematician_model.invoke(messages)
-        result_data = response.model_dump()
-        # Injetamos o resultado bruto para auditoria
-        result_data["calculated_raw"] = results
+
+        result_data = None
+        if hasattr(response, "model_dump"):
+            result_data = response.model_dump()
+        elif hasattr(response, "dict"):
+            result_data = response.dict()
+            
+        if result_data is None:
+            logger.error("Data returned in an unsupported format.")
+            return  {"risk_score_report": "Data has an unsupported type."}
         
-        # Relatório simples para o Supervisor/Auditor ler
+        result_data["calculated_raw"] = results
         simple_report = ""
         for score_name, text in results.items():
             simple_report += f"{score_name}: {text}\n"
 
-        print(f"✅ Mathematician Complete.")
+        logging.info(f"✅ Mathematician Complete: {simple_report}")
         
         return {
             "extracted_data": data,
@@ -130,6 +151,6 @@ def mathematician_node(state: AgentState) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        print(f"❌ Mathematician Critical Error: {e}")
+        logger.error(f"❌ Mathematician Critical Error: {e}")
         traceback.print_exc()
         return {"risk_score_report": f"Critical Error in Mathematician: {str(e)}"}

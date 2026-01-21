@@ -4,9 +4,8 @@ def normalize_vitals_for_calculator(extraction_json: dict) -> dict:
     Aceita tanto o formato 'Rich JSON' (aninhado) quanto o 'Flat JSON' (simples).
     Retorna um dicionário plano pronto para a ferramenta de cálculo (Calculator Tool).
     """
-    
-    # 1. Tenta localizar onde os vitais estão (Polimorfismo de Entrada)
-    # Se vier dentro de 'vital_signs' (padrão Visionário) ou 'extracted_vitals' (seu log)
+
+    # 1. Try to locate where the vitals are
     source = extraction_json.get("vital_signs") or extraction_json.get("extracted_vitals") or extraction_json
 
     def _get_val(keys_list, target_type=float):

@@ -1,5 +1,8 @@
 from typing import List, Literal, Dict
 from src.state.agent_state import AgentState
+import logging
+
+logger = logging.getLogger(__name__)
 
 def supervisor_planning(state: AgentState) -> Dict[str, List[str]]:
     """
@@ -17,12 +20,6 @@ def supervisor_planning(state: AgentState) -> Dict[str, List[str]]:
     print("--- 🧠 NODE: SUPERVISOR (PLANNING) ---")
 
     initial_plan = ["scribe", "mathematician", "clinical_rag"]
-    # We return a dict to update the state.
-    # Note: 'plan' key needs to be existent in AgentState if we use TypedDict with strict keys,
-    # but AgentState definition showed earlier might not have 'plan' (checked earlier, it ended with context/auditor keys).
-    # If 'plan' is not in AgentState, this might be an issue if we are adding new keys to TypedDict.
-    # Assuming AgentState is flexible or will be updated. 
-    # However, for now, we just return the update.
     return {"plan": initial_plan} 
 
 def supervisor_router(state: AgentState) -> Literal["scribe", "mathematician", "clinical_rag", "END"]:
@@ -51,30 +48,30 @@ def supervisor_router(state: AgentState) -> Literal["scribe", "mathematician", "
 
     # 1. Extraction Phase
     if not extracted and attempts < 3:
-        print("DEBUG AGENT: Routing to scribe (No extraction)")
+        # logging.info("DEBUG AGENT: Routing to scribe (No extraction)")
         return "scribe"
     
     # 2. Validation Retry Logic
     if errors and attempts < 3:
-        print(f"⚠️ Validation errors detected: {len(errors)}. Retrying Scribe (Attempt {attempts+1}).")
+        logging.warning(f"⚠️ Validation errors detected: {len(errors)}. Retrying Scribe (Attempt {attempts+1}).")
         return "scribe"
     
     if not extracted and attempts >= 3:
-        print("❌ Max attempts reached for extraction. Giving up.")
+        logging.error("❌ Max attempts reached for extraction. Giving up.")
         return "END"
 
     # 3. Calculation Phase
     if extracted and not risk:
-        print("DEBUG AGENT: Routing to mathematician")
+        # print("DEBUG AGENT: Routing to mathematician")
         return "mathematician"
     
     if risk and not context:
-        print("DEBUG AGENT: Routing to clinical_rag")
+        # print("DEBUG AGENT: Routing to clinical_rag")
         return "clinical_rag"
     
     if audit:
-        print("DEBUG AGENT: Routing to END (Audit complete)")
+        # print("DEBUG AGENT: Routing to END (Audit complete)")
         return "END"
     
-    print("DEBUG AGENT: Routing to END (Default)")
+    # print("DEBUG AGENT: Routing to END (Default)")
     return "END"
