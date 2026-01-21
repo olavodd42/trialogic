@@ -17,6 +17,13 @@ with open(prompt_path, encoding='utf-8') as f:
     AUDITOR_SYSTEM = f.read()
 
 def load_static_definitions() -> str:
+    """
+    Loads static clinical protocol definitions from a local text file.
+
+    Returns:
+        str: The content of the definitions file. Returns a default string 
+             referencing standard protocols (Sepsis-3, NEWS2, MEWS) if the file is not found.
+    """
     def_path = os.path.join(os.getcwd(), "docs", "definitions.txt")
     try:
         with open(def_path, "r", encoding="utf-8") as f:
@@ -29,6 +36,22 @@ STATIC_RULES = load_static_definitions()
 
 
 def synthesizer_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Executes the Synthesizer (Auditor) node logic.
+
+    This function aggregates extracted patient data, risk score reports, and 
+    retrieved RAG context to generate a comprehensive clinical audit using an LLM.
+    It constructs the context, prompts the model for a structured evaluation, 
+    and verifies the fidelity of cited evidence against the source context.
+
+    Args:
+        state (AgentState): The current state of the agent workflow, containing key 
+                            keys like 'extracted_data', 'risk_score_report', and 'context_text'.
+
+    Returns:
+        Dict[str, Any]: A dictionary containing the 'auditor_report' to update the state. 
+                        In case of error, returns an error report.
+    """
     logger.info("--- ⚖️ NODE: SYNTHESIZER (AUDITOR) ---")
 
     extracted_data = state.get("extracted_data")

@@ -29,16 +29,16 @@ class AgentState(TypedDict, total=False):
             implementation-wise could be a dictionary or an error message.
     """
  
-    input: Optional[InputSchema]              # O input bruto da triagem
-    extracted_data: Optional[RawScribeLLM] # O JSON validado (SinaisVitais)
-    validation_errors: List[Optional[str]]   # Mensagem de erro do Pydantic (se houver)
+    input: Optional[InputSchema]              # Raw triage input
+    extracted_data: Optional[RawScribeLLM] # Validated JSON (VitalSigns)
+    validation_errors: List[Optional[str]]   # Pydantic error message (if any)
     validation_messages: List[Any]
     attempts: int
-    risk_score_report: Optional[str]  # Resultados dos scores de risco
+    risk_score_report: Optional[str]  # Risk score results
     search_query: Optional[str]
     context_category: Optional[str]
     context_text: Optional[str]
-    auditor_report: Optional[Any]     # Relatório final da auditoria (dict ou msg de erro)
+    auditor_report: Optional[Any]     # Final audit report (dict or error msg)
     
     next_step: Optional[str]
     plan: List[str]

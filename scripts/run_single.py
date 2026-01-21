@@ -1,8 +1,16 @@
 import sys
 import os
+import logging
 from pprint import pprint
 from typing import cast
 import pandas as pd
+
+# Configure logging to display INFO messages
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
 
 sys.path.append(os.getcwd())
 

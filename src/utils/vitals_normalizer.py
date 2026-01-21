@@ -2,12 +2,31 @@ import re
 from typing import Optional, Union
 
 def extract_number(text: str) -> Optional[float]:
+    """
+    Extracts the first number from a string, handling optional decimals.
+
+    Args:
+        text (str): Input text containing a number.
+
+    Returns:
+        Optional[float]: Extracted float value or None if no match.
+    """
     if not text:
         return None
     match = re.search(r"-?\d+(\.\d+)?", text)
     return float(match.group(0)) if match else None
 
 def normalize_temperature(raw: Union[str, float, int, None]) -> Optional[float]:
+    """
+    Normalizes temperature inputs to Celsius.
+    Converts Fahrenheit to Celsius if value > 45 or unit 'F' is present.
+
+    Args:
+        raw (Union[str, float, int, None]): Raw temperature value.
+
+    Returns:
+        Optional[float]: Temperature in Celsius.
+    """
     if raw is None:
         return None
 

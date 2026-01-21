@@ -9,6 +9,9 @@ TypeACVPU = Literal['Alert', 'Confusion', 'Voice', 'Pain', 'Unresponsive']
 TypeVitalFormat = Literal['LABELED', 'UNLABELED_SEQUENCE', 'MIXED', 'NOT_FOUND']
 
 class VitalsSchema(BaseModel):
+    """
+    Standardized schema for vital signs extractor.
+    """
     heartrate: Optional[int] = None
     resprate: Optional[int] = None
     temperature: Optional[float] = None

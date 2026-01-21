@@ -1,8 +1,8 @@
 def normalize_vitals_for_calculator(extraction_json: dict) -> dict:
     """
-    Adapter Robusto (Polimórfico).
-    Aceita tanto o formato 'Rich JSON' (aninhado) quanto o 'Flat JSON' (simples).
-    Retorna um dicionário plano pronto para a ferramenta de cálculo (Calculator Tool).
+    Robust Adapter (Polymorphic).
+    Accepts both 'Rich JSON' (nested) and 'Flat JSON' (simple) formats.
+    Returns a flat dictionary ready for the calculation tool (Calculator Tool).
     """
 
     # 1. Try to locate where the vitals are
@@ -61,8 +61,8 @@ def normalize_vitals_for_calculator(extraction_json: dict) -> dict:
 
 def check_data_sufficiency(normalized_data: dict, score_type: str = "NEWS") -> list:
     """
-    Função Auxiliar para o 'Auditor Agent'.
-    Retorna lista de campos faltantes antes mesmo de tentar calcular.
+    Auxiliary function for the 'Auditor Agent'.
+    Returns a list of missing fields even before attempting calculation.
     """
     required = {
         "NEWS": ["resprate", "o2sat", "sbp", "heartrate", "temperature", "avpu"], # AVPU pode ser inferido de GCS

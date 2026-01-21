@@ -13,7 +13,19 @@ PERSIST_DIRECTORY = os.path.join(os.getcwd(), "chroma_db")
 
 def ingest_document(filepath: str, category: str, source_type: str):
     """
-    Função universal de ingestão. Detecta se é PDF ou TXT e processa.
+    Ingests a document into the ChromaDB vector store.
+    
+    Loads a document from the specified filepath (supports PDF and TXT), 
+    assigns metadata (category, source_type), splits it into chunks, 
+    generates embeddings, and stores them in the persistent ChromaDB directory.
+
+    Args:
+        filepath (str): Absolute or relative path to the document file.
+        category (str): A label to categorize the document (e.g., 'protocol', 'guideline').
+        source_type (str): The origin or type of the source (e.g., 'internal', 'external').
+
+    Returns:
+        None
     """
     logger.debug(f"📚 Ingesting: {filepath}...")
 

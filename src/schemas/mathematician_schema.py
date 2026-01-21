@@ -29,14 +29,14 @@ class MathematicianSchema(BaseModel):
     Master Output Schema for the Mathematician Agent.
     Combines technical auditing (ScoreCapability) with clinical reasoning (RiskScoreAnalysis).
     """
-    # Auditoria Técnica: O que foi possível calcular?
+    # Technical Audit: What was possible to calculate?
     capabilities: List[ScoreCapability] = Field(..., description="Audit report of calculation capabilities for each requested score.")
     
-    # Análise Clínica: Dos que foram calculados, qual o risco?
+    # Clinical Analysis: From those calculated, what is the risk?
     analyzed_scores: List[RiskScoreAnalysis] = Field(default_factory=list, description="List of scores that were successfully calculated and analyzed.")
     
-    # Síntese Final
+    # Final Synthesis
     overall_risk_assessment: str = Field(..., description="Synthesized assessment of the patient's stability based on all scores.")
     
-    # Campo para injetar os dados brutos (Opcional, preenchido via código, não pela LLM)
+    # Field to inject raw data (Optional, filled via code, not by LLM)
     calculated_raw: Optional[Dict[str, Any]] = Field(None, description="Raw Python calculation results for debugging.")

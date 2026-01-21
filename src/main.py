@@ -13,7 +13,7 @@ from src.state.agent_state import AgentState
 from src.agents.supervisor import supervisor_planning, supervisor_router
 from src.agents.scribe import ScribeAgent
 from src.agents.validator import validator_node, validator_router
-from src.agents.mathematician import mathematician_node
+from src.agents.mathematician import MathematicianAgent
 from src.agents.clinical_rag import clinical_rag_node
 from src.agents.synthesizer import synthesizer_node
 import logging
@@ -21,11 +21,21 @@ import logging
 logger = logging.getLogger(__name__)
 
 def create_workflow():
+    """
+    Constructs and compiles the StateGraph for the TriaLogic clinical audit system.
+
+    Builds the graph nodes (Supervisor, Scribe, Validator, Mathematician, RAG, Synthesizer)
+    and defines the conditional edges and routing logic that govern the flow of execution.
+
+    Returns:
+        CompiledStateGraph: The compiled LangGraph application ready for invocation.
+    """
     # --- LLM SETUP ---
     logger.info("Creating workflow...")
     # Init LLM for Scribe (Dependency Injection)
     llm = ChatOllama(model="llama3.1", temperature=0, seed=42)
     scribe_agent = ScribeAgent(model=llm)
+    mathematician_agent = MathematicianAgent(model=llm)
 
     # --- GRAPH ---
     workflow = StateGraph(AgentState)
@@ -34,7 +44,7 @@ def create_workflow():
     workflow.add_node("supervisor", supervisor_planning)
     workflow.add_node("scribe", scribe_agent.process)
     workflow.add_node("validator", validator_node)
-    workflow.add_node("mathematician", mathematician_node)
+    workflow.add_node("mathematician", mathematician_agent.process)
     workflow.add_node("clinical_rag", clinical_rag_node)
     workflow.add_node("synthesizer", synthesizer_node)
 

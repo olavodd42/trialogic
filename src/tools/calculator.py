@@ -21,36 +21,50 @@ class ScoreBreakdown(BaseModel):
 
 class ClinicalCalculator:
     """
-    Ferramenta determinística para cálculo de scores clínicos.
-    Implementa lógica 'Hard-Coded' para garantir precisão matemática que LLMs falham.
+    Deterministic tool for clinical score calculation.
+    Implments 'Hard-Coded' logic to ensure mathematical precision where LLMs might fail.
     """
 
     @staticmethod
     def calculate_news(vitals: dict) -> dict:
+        """
+        Calculates the NEWS2 (National Early Warning Score 2).
+
+        Args:
+            vitals (dict): Dictionary containing normalized vital signs.
+
+        Returns:
+            dict: The breakdown of the score and the total score.
+        """
         logger.debug("Calculating NEWS2 score...")
         score = 0
         breakdown = {}
+        missing_data = []
 
         # 1. Respiratory Rate
         rr = vitals.get('resprate')
-        if rr is not None:
-            if rr <= 8: s = 3
-            elif 9 <= rr <= 11: s = 1
-            elif 12 <= rr <= 20: s = 0
-            elif 21 <= rr <= 24: s = 2
-            else: s = 3
-            score += s
-            breakdown['resprate'] = s
+        if rr is None:
+            missing_data.append("resprate")
+            s = 0
+        elif rr <= 8: s = 3
+        elif 9 <= rr <= 11: s = 1
+        elif 12 <= rr <= 20: s = 0
+        elif 21 <= rr <= 24: s = 2
+        else: s = 3
+        score += s
+        breakdown['resprate'] = s
 
         # 2. SpO2 (Scale 1 - Assuming no hypercapnic failure for general screening)
         spo2 = vitals.get('o2sat')
-        if spo2 is not None:
-            if spo2 <= 91: s = 3
-            elif 92 <= spo2 <= 93: s = 2
-            elif 94 <= spo2 <= 95: s = 1
-            else: s = 0
-            score += s
-            breakdown['o2sat'] = s
+        if spo2 is None:
+            missing_data.append("o2sat")
+            s = 0
+        elif spo2 <= 91: s = 3
+        elif 92 <= spo2 <= 93: s = 2
+        elif 94 <= spo2 <= 95: s = 1
+        else: s = 0
+        score += s
+        breakdown['o2sat'] = s
 
         # 3. Supplemental Oxygen
         supp_o2 = vitals.get('supplemental_oxygen', False)
@@ -60,37 +74,43 @@ class ClinicalCalculator:
 
         # 4. Temperature
         temp = vitals.get('temperature')
-        if temp is not None:
-            if temp <= 35.0: s = 3
-            elif 35.1 <= temp <= 36.0: s = 1
-            elif 36.1 <= temp <= 38.0: s = 0
-            elif 38.1 <= temp <= 39.0: s = 1
-            else: s = 2 # > 39.1
-            score += s
-            breakdown['temperature'] = s
+        if temp is None:
+            missing_data.append("temperature")
+            s = 0
+        elif temp <= 35.0: s = 3
+        elif 35.1 <= temp <= 36.0: s = 1
+        elif 36.1 <= temp <= 38.0: s = 0
+        elif 38.1 <= temp <= 39.0: s = 1
+        else: s = 2 # > 39.1
+        score += s
+        breakdown['temperature'] = s
 
         # 5. Systolic BP
         sbp = vitals.get('sbp')
-        if sbp is not None:
-            if sbp <= 90: s = 3
-            elif 91 <= sbp <= 100: s = 2
-            elif 101 <= sbp <= 110: s = 1
-            elif 111 <= sbp <= 219: s = 0
-            else: s = 3
-            score += s
-            breakdown['sbp'] = s
+        if sbp is None:
+            missing_data.append("sbp")
+            s = 0
+        elif sbp <= 90: s = 3
+        elif 91 <= sbp <= 100: s = 2
+        elif 101 <= sbp <= 110: s = 1
+        elif 111 <= sbp <= 219: s = 0
+        else: s = 3
+        score += s
+        breakdown['sbp'] = s
 
         # 6. Heart Rate
         hr = vitals.get('heartrate')
-        if hr is not None:
-            if hr <= 40: s = 3
-            elif 41 <= hr <= 50: s = 1
-            elif 51 <= hr <= 90: s = 0
-            elif 91 <= hr <= 110: s = 1
-            elif 111 <= hr <= 130: s = 2
-            else: s = 3
-            score += s
-            breakdown['heartrate'] = s
+        if hr is None:
+            missing_data.append("heartrate")
+            s = 0
+        elif hr <= 40: s = 3
+        elif 41 <= hr <= 50: s = 1
+        elif 51 <= hr <= 90: s = 0
+        elif 91 <= hr <= 110: s = 1
+        elif 111 <= hr <= 130: s = 2
+        else: s = 3
+        score += s
+        breakdown['heartrate'] = s
 
         # 7. Consciousness (ACVPU)
         acvpu = vitals.get('acvpu', 'Alert').lower()
@@ -104,12 +124,16 @@ class ClinicalCalculator:
         score += s
         breakdown['consciousness'] = s
 
-        logger.info(f"NEWS2 score calculated succesfully: {score}")
+        if not missing_data:
+            logger.info(f"NEWS2 score calculated succesfully: {score}")
+        else:
+            logger.warning(f"Missing data: {missing_data}")
 
         return {
             "score": score,
             "breakdown": breakdown,
-            "risk": "High" if score >= 7 else "Medium" if score >= 5 else "Low"
+            "risk": "High" if score >= 7 else "Medium" if score >= 5 else "Low",
+            "missing_fields": missing_data
         }
 
     @staticmethod
@@ -117,50 +141,60 @@ class ClinicalCalculator:
         logger.debug("Calculating MEWS score...")
         score = 0
         breakdown = {}
+        missing_data = []
 
         # 1. RR
         rr = vitals.get('resprate')
-        if rr is not None:
-            if rr < 9: s = 2
-            elif 9 <= rr <= 14: s = 0
-            elif 15 <= rr <= 20: s = 1
-            elif 21 <= rr <= 29: s = 2
-            else: s = 3
-            score += s
-            breakdown['resprate'] = s
+        
+        if rr is None:
+            missing_data.append("resprate")
+            s = 0
+        elif rr < 9: s = 2
+        elif 9 <= rr <= 14: s = 0
+        elif 15 <= rr <= 20: s = 1
+        elif 21 <= rr <= 29: s = 2
+        else: s = 3
+        score += s
+        breakdown['resprate'] = s
 
         # 2. HR
         hr = vitals.get('heartrate')
-        if hr is not None:
-            if hr < 40: s = 2
-            elif 41 <= hr <= 50: s = 1
-            elif 51 <= hr <= 100: s = 0
-            elif 101 <= hr <= 110: s = 1
-            elif 111 <= hr <= 129: s = 2
-            else: s = 3
-            score += s
-            breakdown['heartrate'] = s
+        if hr is None:
+            missing_data.append("heartrate")
+            s = 0
+        elif hr < 40: s = 2
+        elif 41 <= hr <= 50: s = 1
+        elif 51 <= hr <= 100: s = 0
+        elif 101 <= hr <= 110: s = 1
+        elif 111 <= hr <= 129: s = 2
+        else: s = 3
+        score += s
+        breakdown['heartrate'] = s
 
         # 3. SBP
         sbp = vitals.get('sbp')
-        if sbp is not None:
-            if sbp <= 70: s = 3
-            elif 71 <= sbp <= 80: s = 2
-            elif 81 <= sbp <= 100: s = 1
-            elif 101 <= sbp <= 199: s = 0
-            else: s = 2
-            score += s
-            breakdown['sbp'] = s
+        if sbp is None:
+            missing_data.append("sbp")
+            s = 0
+        elif sbp <= 70: s = 3
+        elif 71 <= sbp <= 80: s = 2
+        elif 81 <= sbp <= 100: s = 1
+        elif 101 <= sbp <= 199: s = 0
+        else: s = 2
+        score += s
+        breakdown['sbp'] = s
 
         # 4. Temp
         temp = vitals.get('temperature')
-        if temp is not None:
-            if temp < 35: s = 2
-            elif 35 <= temp <= 38.4: s = 0
-            elif 38.5 <= temp < 39: s = 1 
-            else: s = 2
-            score += s
-            breakdown['temperature'] = s
+        if temp is None:
+            missing_data.append("temperature")
+            s = 0
+        elif temp < 35: s = 2
+        elif 35 <= temp <= 38.4: s = 0
+        elif 38.5 <= temp < 39: s = 1 
+        else: s = 2
+        score += s
+        breakdown['temperature'] = s
 
         # 5. AVPU (Neuro)
         
@@ -185,7 +219,8 @@ class ClinicalCalculator:
         return {
             "score": score,
             "breakdown": breakdown,
-            "risk": "Critical" if score >= 5 else "Monitor"
+            "risk": "Critical" if score >= 5 else "Monitor",
+            "missing_fields": missing_data
         }
 
 def calculate_clinical_score(vitals: dict, score_name: str) -> str:

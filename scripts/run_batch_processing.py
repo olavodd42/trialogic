@@ -10,6 +10,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.main import create_workflow
 from src.schemas.input_schema import InputSchema
 import logging
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
 logger = logging.getLogger(__name__)
 
 SEED = 42
@@ -28,8 +33,8 @@ def main():
     
     df = pd.read_csv(INPUT_CSV)
 
-    df = df.head(5)
-    logger.debug(f"🧪 Start batch experiment with {len(df)} cases.")
+    # df = df.head(5)
+    logger.info(f"🧪 Start batch experiment with {len(df)} cases.")
 
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 

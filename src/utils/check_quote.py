@@ -1,6 +1,17 @@
 
 from difflib import SequenceMatcher
 def check_quote_fidelity(quote: str, context: str, threshold=0.3) -> bool:
+    """
+    Verifies if the cited quote exists within the provided context using fuzzy matching.
+
+    Args:
+        quote (str): The evidence quote extracted by the LLM.
+        context (str): The full context text to search within.
+        threshold (float): Minimum similarity threshold for fuzzy matching.
+
+    Returns:
+        bool: True if the quote is consistent with the context, False otherwise.
+    """
     # 1. Ignore validations in explicit error cases
     if "Missing data" in quote or "not found" in quote.lower():
         return True
