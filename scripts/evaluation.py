@@ -16,12 +16,17 @@ NEWS_PATTERN = re.compile(r"SCORE TOTAL NEWS:\s*(\d+)")
 MEWS_PATTERN = re.compile(r"SCORE TOTAL MEWS:\s*(\d+)")
 
 # --- 1. INDEPENDENT ORACLE (GROUND TRUTH CALCULATOR) ---
+def infer_avpu_from_csv(row):
+    cc = str(row.get('chiefcomplaint', '')).lower()
+    triggers = ['confusion', 'confused', 'disoriented', 'altered mental', 'lethargic', 'unresponsive', 'obtunded']
+    
+    if any(t in cc for t in triggers):
+        return 3
+    return 0
 
 def oracle_news2(row):
-    # logger.debug("Calculating NEWS...")
     score = 0
     
-    # Se faltar dado vital, retornamos NaN para não sujar a métrica
     if pd.isna(row.get('triage_sbp')) or pd.isna(row.get('triage_heartrate')):
         return np.nan
 
@@ -61,13 +66,15 @@ def oracle_news2(row):
 
     # Supplemental Oxygen (Assume False as lacking data, matches extracting 'supplemental_oxygen' 0 in most cases if unknown)
     score += 0 
-
+    
     # Consciousness (Using Acuity as Proxy because AVPU is missing)
     # ESI 1/2 -> Likely altered mental status
     acuity = row.get('triage_acuity')
     if pd.notna(acuity):
         if acuity <= 2: 
-            score += 3 # New Confusion or Worse
+            score += 3
+        elif (rr < 8) or (rr > 30) or (sbp < 90) or (o2 < 90) or (hr > 130) or (hr < 40):
+            score += 3
     
     return score
 
@@ -111,6 +118,8 @@ def oracle_mews(row):
     if pd.notna(acuity):
         if acuity <= 1: score += 3 # Unresponsive
         elif acuity == 2: score += 2 # Pain/Voice? Heuristic.
+        elif (rr < 8) or (rr > 30) or (sbp < 90) or (hr > 130) or (hr < 40):
+            score += 2
         # else 0 (Alert)
     
     return score
@@ -155,23 +164,25 @@ def evaluate_vitals(df):
     logger.info("\n=== 1. EXTRACTION EVALUATION (SCRIBE AGENT) ===")
     
     metrics = [
-        ('triage_heartrate', 'vitals.heartrate', 'Heart Rate'),
-        ('triage_sbp', 'vitals.sbp', 'SBP'),
-        ('triage_resprate', 'vitals.resprate', 'Resp Rate'),
-        ('triage_o2sat', 'vitals.o2sat', 'O2 Sat'),
-        ('triage_dbp', 'vitals.dbp', 'DBP'),
-        ('triage_temperature', 'vitals.temperature', 'Temperature')
+        ('triage_heartrate', 'heartrate', 'Heart Rate', 0, 300), # Range válido
+        ('triage_sbp', 'sbp', 'SBP', 0, 300),
+        ('triage_dbp', 'dbp', 'DBP', 0, 200),
+        ('triage_resprate', 'resprate', 'Resp Rate', 0, 100),
+        ('triage_o2sat', 'o2sat', 'O2 Sat', 0, 100),
+        ('triage_temperature', 'temperature', 'Temperature', 0, 120)
     ]
+
     
     report = []
     
-    for gt_col, pred_path, label in metrics:        
+    for gt_col, pred_key, label, min_val, max_val in metrics:        
         y_true = []
         y_pred = []
         
+        outliers = 0
         valid_count = 0
         # missing_pred_count = 0
-        for _, row in df.iterrows():
+        for idx, row in df.iterrows():
             gt_val = row.get(gt_col)
 
             pred_val = None
@@ -190,7 +201,7 @@ def evaluate_vitals(df):
                         ext_data = raw_ext if isinstance(raw_ext, dict) else json.loads(raw_ext)
                         vitals = ext_data.get('vitals', {})
                 
-                pred_key = pred_path.split('.')[1] 
+                # pred_key already defined in loop var
                 pred_val = vitals.get(pred_key)
                 
             except Exception:
@@ -200,21 +211,29 @@ def evaluate_vitals(df):
             # Evaluation Logic
             if pd.notna(gt_val) and pred_val is not None:
                 try: 
-                    val_float = float(pred_val)
+                    gt_float = float(gt_val)
+                    pred_float = float(pred_val)
                     
-                    # Sanitation for DBP/SBP outliers
-                    if 'BP' in label and val_float > 300:
+                    # --- Santizing Filter ---
+                    if not (min_val <= pred_float <= max_val):
+                        outliers += 1
+                        continue
+                    if not (min_val <= pred_float <= max_val):
+                        outliers += 1
                         continue 
 
                     # Temperature Normalization (F to C)
-                    g_v = float(gt_val)
-                    p_v = val_float
                     if label == 'Temperature':
-                        if g_v > 50: g_v = (g_v - 32) * 5/9
-                        if p_v > 50: p_v = (p_v - 32) * 5/9
+                        if gt_float > 50 and pred_float < 50:
+                            gt_float = (gt_float - 32) * 5/9
+                        elif pred_float > 50 and gt_float < 50:
+                            pred_float = (pred_float - 32) * 5/9
 
-                    y_true.append(g_v)
-                    y_pred.append(p_v)
+                    if abs(gt_float - pred_float) > 100:
+                        logger.warning(f"🚨 HUGE ERROR DETECTED in {label} (Idx {idx}): GT={gt_float} vs Pred={pred_float}")
+
+                    y_true.append(gt_float)
+                    y_pred.append(pred_float)
                     valid_count += 1
                 except ValueError:
                     pass
@@ -222,11 +241,11 @@ def evaluate_vitals(df):
         # Metrics Computation
         if y_true:
             mae = mean_absolute_error(y_true, y_pred)
-            tol = 0.5 if label == 'Temperature' else 5.0 # Increased tolerance slightly
+            tol = 0.5 if label == 'Temperature' else 5.0
             correct = sum([1 for t, p in zip(y_true, y_pred) if abs(t - p) <= tol])
             acc = correct / len(y_true)
             
-            logger.info(f"{label:<15} | MAE: {mae:.2f} | Acc (+-{tol}): {acc:.1%} | N: {valid_count}")
+            logger.info(f"{label:<15} | MAE: {mae:.2f} | Acc (+-{tol}): {acc:.1%} | N: {valid_count} | Outliers Removidos: {outliers}")
             
             report.append({
                 "Metric": label, 
@@ -272,9 +291,10 @@ def evaluate_risk(df):
                 y_pred.append(int(pred))
                 
         if y_true:
+            labels = ['Low', 'Medium', 'High']
             acc = accuracy_score(y_true, y_pred)
             mae = mean_absolute_error(y_true, y_pred)
-            
+
             logger.info(f"--- {label} ---")
             logger.info(f"Exact Score Accuracy: {acc:.1%}")
             logger.info(f"MAE (Deviation):      {mae:.2f}")
@@ -299,14 +319,17 @@ def evaluate_risk(df):
 
             c_true = [cat_func(s) for s in y_true]
             c_pred = [cat_func(s) for s in y_pred]
-            
+
             cat_acc = accuracy_score(c_true, c_pred)
             logger.info(f"Risk Category Accuracy: {cat_acc:.1%}")
 
             labels = ['Low', 'Medium', 'High']
             cm = confusion_matrix(c_true, c_pred, labels=labels)
             
-            # Better Matrix Printing
+            high_idx = 2 
+            recall_high = cm[high_idx, high_idx] / sum(cm[high_idx, :]) if sum(cm[high_idx, :]) > 0 else 0
+            logger.info(f"Recall High Risk (Critical): {recall_high:.1%}")
+
             cm_df = pd.DataFrame(cm, index=[f"True_{l}" for l in labels], columns=[f"Pred_{l}" for l in labels])
             logger.info(f"\nConfusion Matrix ({label}):")
             logger.info("\n" + str(cm_df))
