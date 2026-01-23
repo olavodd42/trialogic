@@ -15,15 +15,42 @@ logger = logging.getLogger(__name__)
 NEWS_PATTERN = re.compile(r"SCORE TOTAL NEWS:\s*(\d+)")
 MEWS_PATTERN = re.compile(r"SCORE TOTAL MEWS:\s*(\d+)")
 
-# --- 1. INDEPENDENT ORACLE (GROUND TRUTH CALCULATOR) ---
-def infer_avpu_from_csv(row):
-    cc = str(row.get('chiefcomplaint', '')).lower()
-    triggers = ['confusion', 'confused', 'disoriented', 'altered mental', 'lethargic', 'unresponsive', 'obtunded']
+def load_datasets(csv_path, experiments_dict):
+    """Carrega GT e N experimentos, retornando dict de DataFrames mergeados."""
+    logger.info(f"📂 Loading Ground Truth: {csv_path}")
+    df_gt = pd.read_csv(csv_path)
     
-    if any(t in cc for t in triggers):
-        return 3
-    return 0
+    # Normaliza ID do GT
+    id_col = 'hadm_id' if 'hadm_id' in df_gt.columns else 'stay_id'
+    if id_col in df_gt.columns:
+        df_gt[id_col] = pd.to_numeric(df_gt[id_col], errors='coerce')
+    
+    merged_results = {}
+    
+    for label, path in experiments_dict.items():
+        if not os.path.exists(path):
+            logger.warning(f"⚠️ File not found for {label}: {path}")
+            continue
+            
+        logger.info(f"   🔹 Loading {label}: {path}")
+        preds = []
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                try: preds.append(json.loads(line))
+                except: pass
+        
+        df_pred = pd.DataFrame(preds)
+        if id_col in df_pred.columns:
+            df_pred[id_col] = pd.to_numeric(df_pred[id_col], errors='coerce')
+            # Merge
+            merged = pd.merge(df_gt, df_pred, on=id_col, suffixes=('_gt', '_pred'))
+            merged_results[label] = merged
+        else:
+            logger.warning(f"❌ ID Column {id_col} not found in {label}. Skipping.")
+    
+    return merged_results
 
+# --- 1. INDEPENDENT ORACLE (GROUND TRUTH CALCULATOR) ---
 def oracle_news2(row):
     score = 0
     
@@ -131,7 +158,8 @@ def load_data(csv_path, jsonl_results_path):
     
     # Load Ground Truth
     df_gt = pd.read_csv(csv_path)
-    # Ensure hadm_id is same type
+
+    # Ensure that hadm_id is of same type
     if 'hadm_id' in df_gt.columns:
         df_gt['hadm_id'] = pd.to_numeric(df_gt['hadm_id'], errors='coerce')
 
@@ -139,7 +167,10 @@ def load_data(csv_path, jsonl_results_path):
     predictions = []
     with open(jsonl_results_path, 'r', encoding='utf-8') as f:
         for line in f:
-            predictions.append(json.loads(line))
+            try:
+                predictions.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
     
     df_pred = pd.DataFrame(predictions)
     if 'hadm_id' in df_pred.columns:
@@ -176,64 +207,45 @@ def evaluate_vitals(df):
     report = []
     
     for gt_col, pred_key, label, min_val, max_val in metrics:        
-        y_true = []
-        y_pred = []
+        y_true, y_pred = [],[]
         
-        outliers = 0
-        valid_count = 0
-        # missing_pred_count = 0
+        outliers, valid_count = 0, 0
         for idx, row in df.iterrows():
             gt_val = row.get(gt_col)
 
             pred_val = None
             try:
-                # Try 'extracted_vitals' first (Direct dict)
-                vitals = {}
-                if 'extracted_vitals' in row: 
-                    raw_vitals = row['extracted_vitals']
-                    if pd.notna(raw_vitals):
-                        vitals = raw_vitals if isinstance(raw_vitals, dict) else json.loads(raw_vitals)
-                
-                # Fallback to 'extracted_data' (Nested dict)
+                # Baseline case
+                if 'extracted_vitals' in row and isinstance(row['extracted_vitals'], dict):
+                    pred_val = row['extracted_vitals'].get(pred_key)
+                # Trialogic case
                 elif 'extracted_data' in row:
-                    raw_ext = row['extracted_data']
-                    if pd.notna(raw_ext):
-                        ext_data = raw_ext if isinstance(raw_ext, dict) else json.loads(raw_ext)
-                        vitals = ext_data.get('vitals', {})
-                
-                # pred_key already defined in loop var
-                pred_val = vitals.get(pred_key)
-                
-            except Exception:
-                # logger.error("Extracted data couldn't be loaded")
+                    ext = row['extracted_data']
+                    if isinstance(ext, str): ext = json.loads(ext)
+                    pred_val = ext.get('vitals', {}).get(pred_key)
+            except: 
                 pass
-
+                
             # Evaluation Logic
             if pd.notna(gt_val) and pred_val is not None:
-                try: 
-                    gt_float = float(gt_val)
-                    pred_float = float(pred_val)
-                    
+                try:
+                    gt_f, pred_f = float(gt_val), float(pred_val)
+                
                     # --- Santizing Filter ---
-                    if not (min_val <= pred_float <= max_val):
-                        outliers += 1
-                        continue
-                    if not (min_val <= pred_float <= max_val):
+                    if not (min_val <= pred_f <= max_val): 
                         outliers += 1
                         continue 
 
                     # Temperature Normalization (F to C)
                     if label == 'Temperature':
-                        if gt_float > 50 and pred_float < 50:
-                            gt_float = (gt_float - 32) * 5/9
-                        elif pred_float > 50 and gt_float < 50:
-                            pred_float = (pred_float - 32) * 5/9
+                        if gt_f > 50 and pred_f < 50: gt_f = (gt_f - 32) * 5/9
+                        elif pred_f > 50 and gt_f < 50: pred_f = (pred_f - 32) * 5/9
 
-                    if abs(gt_float - pred_float) > 100:
-                        logger.warning(f"🚨 HUGE ERROR DETECTED in {label} (Idx {idx}): GT={gt_float} vs Pred={pred_float}")
+                    if abs(gt_f - pred_f) > 100:
+                        logger.warning(f"🚨 HUGE ERROR DETECTED in {label} (Idx {idx}): GT={gt_f} vs Pred={pred_f}")
 
-                    y_true.append(gt_float)
-                    y_pred.append(pred_float)
+                    y_true.append(gt_f)
+                    y_pred.append(pred_f)
                     valid_count += 1
                 except ValueError:
                     pass
@@ -266,7 +278,7 @@ def parse_agent_score(risk_score_str, pattern):
 
 # --- 4. REASONING EVALUATION (CALCULATOR) ---
 
-def evaluate_risk(df):
+def evaluate_risk(df, name):
     logger.info("\n=== 2. REASONING EVALUATION (MATHEMATICIAN AGENT) ===")
     
     score_types = [
@@ -276,49 +288,34 @@ def evaluate_risk(df):
 
     
     for label, oracle_func, regex_pattern in score_types:
-        y_true = []
-        y_pred = []
+        y_true, y_pred = [],[]
+
         for _, row in df.iterrows():
             # 1. Ground Truth
             gt = oracle_func(row)
             
             # 2. Prediction
-            raw_text = row.get('risk_score', '')
-            pred = parse_agent_score(raw_text, regex_pattern)
+            pred = parse_agent_score(row.get('risk_score', ''), regex_pattern)
 
             if pd.notna(gt) and pred is not None:
                 y_true.append(int(gt))
                 y_pred.append(int(pred))
                 
         if y_true:
-            labels = ['Low', 'Medium', 'High']
             acc = accuracy_score(y_true, y_pred)
             mae = mean_absolute_error(y_true, y_pred)
-
             logger.info(f"--- {label} ---")
             logger.info(f"Exact Score Accuracy: {acc:.1%}")
             logger.info(f"MAE (Deviation):      {mae:.2f}")
             
             # Confusion Metrics (Risk Categories)
-            def cat_news(s):
-                if s <= 4: return 'Low'
-                elif s <= 6: return 'Medium'
-                else: return 'High'
-
-            def cat_mews(s):
-                # Using 0-2 (Low), 3-4 (Med), 5+ (High) is more standard for MEWS
-                if s <= 2: return 'Low'
-                if s <= 4: return 'Medium'
-                return 'High'
+            def cat(s): return 'Low' if s<=4 else ('Medium' if s<=6 else 'High')
+            if label == 'MEWS':
+                 def cat(s): return 'Low' if s<=2 else ('Medium' if s<=4 else 'High')
             
-            # Use specific categorizer or generic
-            if label == 'NEWS2': 
-                cat_func = cat_news
-            else:
-                cat_func = cat_mews
 
-            c_true = [cat_func(s) for s in y_true]
-            c_pred = [cat_func(s) for s in y_pred]
+            c_true = [cat(s) for s in y_true]
+            c_pred = [cat(s) for s in y_pred]
 
             cat_acc = accuracy_score(c_true, c_pred)
             logger.info(f"Risk Category Accuracy: {cat_acc:.1%}")
@@ -342,7 +339,7 @@ def evaluate_risk(df):
                 plt.ylabel('Ground Truth (MIMIC Data)')
                 plt.xlabel('TriaLogic Prediction')
                 plt.tight_layout()
-                plt.savefig(f'confusion_matrix_{label}.png')
+                plt.savefig(f'confusion_matrix_{label}_{name}.png')
                 logger.info(f"Confusion matrix saved as 'confusion_matrix_{label}.png'")
                 plt.close()
             except Exception as e:
@@ -354,31 +351,151 @@ def evaluate_risk(df):
             logger.warning(f"--- {label} ---")
             logger.warning("It wasn't possible to compare scores (insufficient data).")
 
+def compute_metrics(df, system_name):
+    results = {}
+    
+    # 3.1 Vitals Extraction
+    vitals_config = [
+        ('triage_heartrate', 'heartrate', 'MAE_HR', 0, 300),
+        ('triage_sbp', 'sbp', 'MAE_SBP', 0, 300),
+        ('triage_resprate', 'resprate', 'MAE_RR', 0, 100),
+        ('triage_o2sat', 'o2sat', 'MAE_O2', 0, 100),
+        ('triage_temperature', 'temperature', 'MAE_Temp', 0, 120)
+    ]
+
+    logger.debug("Calculating metrics...")
+    for gt_col, pred_key, metric_name, min_v, max_v in vitals_config:
+        y_true, y_pred = [], []
+        for _, row in df.iterrows():
+            gt_val = row.get(gt_col)
+            pred_val = None
+            try:
+                # Baseline vs TriaLogic Polymorfism
+                if 'extracted_vitals' in row and isinstance(row['extracted_vitals'], dict):
+                    pred_val = row['extracted_vitals'].get(pred_key)
+                elif 'extracted_data' in row:
+                    ext = row['extracted_data']
+                    if isinstance(ext, str): ext = json.loads(ext)
+                    pred_val = ext.get('vitals', {}).get(pred_key)
+            except: pass
+
+            if pd.notna(gt_val) and pred_val is not None:
+                try:
+                    gt_f, pred_f = float(gt_val), float(pred_val)
+                    if not (min_v <= pred_f <= max_v): continue # Filter outliers
+                    
+                    # Temperature Normalization
+                    if 'Temp' in metric_name:
+                        if gt_f > 50 and pred_f < 50: gt_f = (gt_f - 32) * 5/9
+                        elif pred_f > 50 and gt_f < 50: pred_f = (pred_f - 32) * 5/9
+                        
+                    y_true.append(gt_f)
+                    y_pred.append(pred_f)
+                except: pass
+        
+        if y_true:
+            results[metric_name] = mean_absolute_error(y_true, y_pred)
+        else:
+            results[metric_name] = None
+
+    # 3.2 Risk Scoring (NEWS2/MEWS)
+    def parse_score(row):
+        logger.debug("Parsing scores...")
+        txt = str(row.get('risk_score', ''))
+        n = NEWS_PATTERN.search(txt)
+        m = MEWS_PATTERN.search(txt)
+        return (int(n.group(1)) if n else None, int(m.group(1)) if m else None)
+
+    news_true, news_pred = [], []
+    
+    for _, row in df.iterrows():
+        gt_news = oracle_news2(row)
+        p_news, _ = parse_score(row)
+        
+        if pd.notna(gt_news) and p_news is not None:
+            news_true.append(gt_news)
+            news_pred.append(p_news)
+            
+    if news_true:
+        results['Acc_NEWS2'] = accuracy_score(news_true, news_pred)
+        
+        # Risk Category Accuracy
+        def cat(s): return 'Low' if s<=4 else ('Medium' if s<=6 else 'High')
+        c_true = [cat(x) for x in news_true]
+        c_pred = [cat(x) for x in news_pred]
+        results['Risk_Cat_Acc'] = accuracy_score(c_true, c_pred)
+        
+        # High Risk Recall (Critical for Sepsis)
+        cm = confusion_matrix(c_true, c_pred, labels=['Low', 'Medium', 'High'])
+        high_idx = 2
+        if sum(cm[high_idx, :]) > 0:
+            results['Recall_High'] = cm[high_idx, high_idx] / sum(cm[high_idx, :])
+        else:
+            results['Recall_High'] = 0.0
+            
+    # Success Rate (Valid JSONs)
+    valid_json = df['extracted_vitals'].notna().sum() if 'extracted_vitals' in df.columns else df['extracted_data'].notna().sum()
+    results['Valid_JSON_Rate'] = valid_json / len(df)
+
+    return results
+
 # --- MAIN ---
 
 if __name__ == "__main__":
     # Use absolute paths or relative to project root
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     CSV_PATH = os.path.join(BASE_DIR, "data/master_dataset.csv") 
-    JSONL_PATH = os.path.join(BASE_DIR, "results/experiment_results_v1.jsonl")
-    
-    if not os.path.exists(JSONL_PATH):
-        # Fallback to v2 if v1 doesn't exist
-        JSONL_PATH = os.path.join(BASE_DIR, "results/experiment_results_v2.jsonl")
 
-    try:
-        if os.path.exists(CSV_PATH) and os.path.exists(JSONL_PATH):
-            df_merged = load_data(CSV_PATH, JSONL_PATH)
-            
-            # Avaliação Faseada
-            evaluate_vitals(df_merged)
-            evaluate_risk(df_merged)
-            
-            logger.info("\n✅ Finished evaluation succesfully.")
-        else:
-            logger.error(f"Files not found. \nCSV: {CSV_PATH}\nJSONL: {JSONL_PATH}")
-        
-    except FileNotFoundError as e:
-        logger.error(f"File not found: {e}. Verify the paths.")
-    except Exception as e:
-        logger.exception(f"Unexpected error: {e}")
+    EXPERIMENTS = {
+        "Baseline (Zero-Shot)": os.path.join(BASE_DIR, "results/baseline_results.jsonl"),
+        "TriaLogic (Agents)":   os.path.join(BASE_DIR, "results/experiment_results_v1.jsonl")
+    }
+
+    
+    if not os.path.exists(CSV_PATH):
+        logger.error("Dataset not found!")
+        exit()
+
+    # 1. Load and merge
+    dfs = load_datasets(CSV_PATH, EXPERIMENTS)
+
+    # 2. Calculate metrics
+    final_table = []
+    for name, df in dfs.items():
+        logger.info(f"⚙️  Processing metrics for {name}...")
+        metrics = compute_metrics(df, name)
+        metrics['System'] = name
+        final_table.append(metrics)
+    
+    # 3. Display final table
+    if final_table:
+        result_df = pd.DataFrame(final_table)
+        cols = ['System', 'Valid_JSON_Rate', 'Acc_NEWS2', 'Risk_Cat_Acc', 'Recall_High', 'MAE_HR', 'MAE_SBP', 'MAE_Temp']
+        cols = [c for c in cols if c in result_df.columns]
+
+        print("\n" + "="*60)
+        print("🏆  FINAL BENCHMARK RESULTS (TABLE 1)  🏆")
+        print("="*60)
+
+        format_dict = {
+            'Valid_JSON_Rate': '{:.1%}',
+            'Acc_NEWS2': '{:.1%}',
+            'Risk_Cat_Acc': '{:.1%}',
+            'Recall_High': '{:.1%}',
+            'MAE_HR': '{:.2f}', 
+            'MAE_SBP': '{:.2f}', 
+            'MAE_Temp': '{:.2f}'
+        }
+
+        print(result_df[cols].to_string(formatters={
+            k: v.format for k, v in format_dict.items() if k in result_df[cols].columns
+        }))
+        print("="*60)
+        print("Interpretation Guide:")
+        print("- Valid_JSON_Rate: Robustness (Did it crash?)")
+        print("- Acc_NEWS2: Reasoning capability (Math)")
+        print("- MAE_*: Extraction precision (Lower is better)")
+        print("="*60)
+
+    else:
+        logger.error("No valid experiments found.")
