@@ -2,7 +2,7 @@ import os
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from pydantic import SecretStr
 import logging
 
@@ -60,10 +60,9 @@ def ingest_document(filepath: str, category: str, source_type: str):
     splits = text_splitter.split_documents(docs)
 
     # 5. Embeddings Configuration
-    embedding_function = OpenAIEmbeddings(
-        base_url="http://localhost:1234/v1",
-        api_key=SecretStr("lm-studio"),      
-        check_embedding_ctx_length=False
+    # Using BioLinkBERT with sentence-transformers via HuggingFaceEmbeddings
+    embedding_function = HuggingFaceEmbeddings(
+        model_name="michiyasunaga/BioLinkBERT-base"
     )
 
     # 6. Indexing on ChromaDB

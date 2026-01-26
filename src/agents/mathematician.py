@@ -28,7 +28,6 @@ llm = ChatOllama(
 )
 
 
-
 # Load Prompt
 prompt_path = os.path.join(os.getcwd(), "prompts", "mathematician_prompt.md")
 try:

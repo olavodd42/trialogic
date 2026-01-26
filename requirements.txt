@@ -12,3 +12,5 @@ chromadb
 pypdf
 langchain-chroma
 langchain-ollama
+sentence-transformers
+langchain-huggingface

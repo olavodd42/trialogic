@@ -189,214 +189,107 @@ def load_data(csv_path, jsonl_results_path):
     
     return merged
 
-# --- 3. EXTRACTION EVALUATION (NER) ---
 
-def evaluate_vitals(df):
-    logger.info("\n=== 1. EXTRACTION EVALUATION (SCRIBE AGENT) ===")
-    
-    metrics = [
-        ('triage_heartrate', 'heartrate', 'Heart Rate', 0, 300), # Range válido
-        ('triage_sbp', 'sbp', 'SBP', 0, 300),
-        ('triage_dbp', 'dbp', 'DBP', 0, 200),
-        ('triage_resprate', 'resprate', 'Resp Rate', 0, 100),
-        ('triage_o2sat', 'o2sat', 'O2 Sat', 0, 100),
-        ('triage_temperature', 'temperature', 'Temperature', 0, 120)
-    ]
-
-    
-    report = []
-    
-    for gt_col, pred_key, label, min_val, max_val in metrics:        
-        y_true, y_pred = [],[]
-        
-        outliers, valid_count = 0, 0
-        for idx, row in df.iterrows():
-            gt_val = row.get(gt_col)
-
-            pred_val = None
-            try:
-                # Baseline case
-                if 'extracted_vitals' in row and isinstance(row['extracted_vitals'], dict):
-                    pred_val = row['extracted_vitals'].get(pred_key)
-                # Trialogic case
-                elif 'extracted_data' in row:
-                    ext = row['extracted_data']
-                    if isinstance(ext, str): ext = json.loads(ext)
-                    pred_val = ext.get('vitals', {}).get(pred_key)
-            except: 
-                pass
-                
-            # Evaluation Logic
-            if pd.notna(gt_val) and pred_val is not None:
-                try:
-                    gt_f, pred_f = float(gt_val), float(pred_val)
-                
-                    # --- Santizing Filter ---
-                    if not (min_val <= pred_f <= max_val): 
-                        outliers += 1
-                        continue 
-
-                    # Temperature Normalization (F to C)
-                    if label == 'Temperature':
-                        if gt_f > 50 and pred_f < 50: gt_f = (gt_f - 32) * 5/9
-                        elif pred_f > 50 and gt_f < 50: pred_f = (pred_f - 32) * 5/9
-
-                    if abs(gt_f - pred_f) > 100:
-                        logger.warning(f"🚨 HUGE ERROR DETECTED in {label} (Idx {idx}): GT={gt_f} vs Pred={pred_f}")
-
-                    y_true.append(gt_f)
-                    y_pred.append(pred_f)
-                    valid_count += 1
-                except ValueError:
-                    pass
-        
-        # Metrics Computation
-        if y_true:
-            mae = mean_absolute_error(y_true, y_pred)
-            tol = 0.5 if label == 'Temperature' else 5.0
-            correct = sum([1 for t, p in zip(y_true, y_pred) if abs(t - p) <= tol])
-            acc = correct / len(y_true)
-            
-            logger.info(f"{label:<15} | MAE: {mae:.2f} | Acc (+-{tol}): {acc:.1%} | N: {valid_count} | Outliers Removidos: {outliers}")
-            
-            report.append({
-                "Metric": label, 
-                "MAE": mae, 
-                "Accuracy": acc
-            })
-        else:
-            logger.warning(f"{label:<15} | Insufficient Data")
-
-    return pd.DataFrame(report)
-
-def parse_agent_score(risk_score_str, pattern):
-    if not isinstance(risk_score_str, str): return None
-    match = pattern.search(risk_score_str)
-    if match:
-        return int(match.group(1))
-    return None
-
-# --- 4. REASONING EVALUATION (CALCULATOR) ---
-
-def evaluate_risk(df, name):
-    logger.info("\n=== 2. REASONING EVALUATION (MATHEMATICIAN AGENT) ===")
-    
-    score_types = [
-        ("NEWS2", oracle_news2, NEWS_PATTERN),
-        ("MEWS", oracle_mews, MEWS_PATTERN)
-    ]
-
-    
-    for label, oracle_func, regex_pattern in score_types:
-        y_true, y_pred = [],[]
-
-        for _, row in df.iterrows():
-            # 1. Ground Truth
-            gt = oracle_func(row)
-            
-            # 2. Prediction
-            pred = parse_agent_score(row.get('risk_score', ''), regex_pattern)
-
-            if pd.notna(gt) and pred is not None:
-                y_true.append(int(gt))
-                y_pred.append(int(pred))
-                
-        if y_true:
-            acc = accuracy_score(y_true, y_pred)
-            mae = mean_absolute_error(y_true, y_pred)
-            logger.info(f"--- {label} ---")
-            logger.info(f"Exact Score Accuracy: {acc:.1%}")
-            logger.info(f"MAE (Deviation):      {mae:.2f}")
-            
-            # Confusion Metrics (Risk Categories)
-            def cat(s): return 'Low' if s<=4 else ('Medium' if s<=6 else 'High')
-            if label == 'MEWS':
-                 def cat(s): return 'Low' if s<=2 else ('Medium' if s<=4 else 'High')
-            
-
-            c_true = [cat(s) for s in y_true]
-            c_pred = [cat(s) for s in y_pred]
-
-            cat_acc = accuracy_score(c_true, c_pred)
-            logger.info(f"Risk Category Accuracy: {cat_acc:.1%}")
-
-            labels = ['Low', 'Medium', 'High']
-            cm = confusion_matrix(c_true, c_pred, labels=labels)
-            
-            high_idx = 2 
-            recall_high = cm[high_idx, high_idx] / sum(cm[high_idx, :]) if sum(cm[high_idx, :]) > 0 else 0
-            logger.info(f"Recall High Risk (Critical): {recall_high:.1%}")
-
-            cm_df = pd.DataFrame(cm, index=[f"True_{l}" for l in labels], columns=[f"Pred_{l}" for l in labels])
-            logger.info(f"\nConfusion Matrix ({label}):")
-            logger.info("\n" + str(cm_df))
-            
-            # Save plot
-            try:
-                plt.figure(figsize=(6,5))
-                sns.heatmap(cm, annot=True, fmt='d', xticklabels=labels, yticklabels=labels, cmap='Blues')
-                plt.title(f'{label} Risk Stratification')
-                plt.ylabel('Ground Truth (MIMIC Data)')
-                plt.xlabel('TriaLogic Prediction')
-                plt.tight_layout()
-                plt.savefig(f'confusion_matrix_{label}_{name}.png')
-                logger.info(f"Confusion matrix saved as 'confusion_matrix_{label}.png'")
-                plt.close()
-            except Exception as e:
-                logger.warning(f"Could not save plot: {e}")
-
-            logger.info("-" * 30)
-            
-        else:
-            logger.warning(f"--- {label} ---")
-            logger.warning("It wasn't possible to compare scores (insufficient data).")
-
+# 3. --- METRICS ENGINE ---
 def compute_metrics(df, system_name):
     results = {}
+
+    # 3.1 Hallucination rate & Parsing success rate
+    valid_json_count = 0
+    hallucination_count = 0
+    total_extractions = 0
+
+    guardrails = {
+        'heartrate': (0, 300),
+        'sbp': (0, 300),
+        'dbp': (0, 200),
+        'resprate': (0, 100),
+        'o2sat': (0, 100),
+        'temperature': (0, 115)
+    }
     
-    # 3.1 Vitals Extraction
-    vitals_config = [
-        ('triage_heartrate', 'heartrate', 'MAE_HR', 0, 300),
-        ('triage_sbp', 'sbp', 'MAE_SBP', 0, 300),
-        ('triage_resprate', 'resprate', 'MAE_RR', 0, 100),
-        ('triage_o2sat', 'o2sat', 'MAE_O2', 0, 100),
-        ('triage_temperature', 'temperature', 'MAE_Temp', 0, 120)
+    # 3.2 Entity Extraction
+    extraction_targets = [
+        ('triage_heartrate', 'heartrate', 'HR', 5.0),
+        ('triage_sbp', 'sbp', 'SBP', 5.0),
+        ('triage_resprate', 'resprate', 'RR', 2.0),
+        ('triage_o2sat', 'o2sat', 'O2', 2.0),
+        ('triage_temperature', 'temperature', 'Temp', 0.5)
     ]
+    f1_scores = []
+    precision_scores = []
+    recall_scores = []
 
     logger.debug("Calculating metrics...")
-    for gt_col, pred_key, metric_name, min_v, max_v in vitals_config:
-        y_true, y_pred = [], []
+    for gt_col, pred_key, label, tol in extraction_targets:
+        tp, fn, fp = 0, 0, 0
+        # y_true, y_pred = [], []
         for _, row in df.iterrows():
-            gt_val = row.get(gt_col)
+            is_valid_json = False
             pred_val = None
             try:
                 # Baseline vs TriaLogic Polymorfism
                 if 'extracted_vitals' in row and isinstance(row['extracted_vitals'], dict):
                     pred_val = row['extracted_vitals'].get(pred_key)
+                    is_valid_json = True
                 elif 'extracted_data' in row:
                     ext = row['extracted_data']
                     if isinstance(ext, str): ext = json.loads(ext)
                     pred_val = ext.get('vitals', {}).get(pred_key)
+                    is_valid_json = True
             except: pass
 
-            if pd.notna(gt_val) and pred_val is not None:
+            if is_valid_json and pred_key == 'heartrate':
+                valid_json_count += 1
+
+
+            if pred_val is not None:
                 try:
-                    gt_f, pred_f = float(gt_val), float(pred_val)
-                    if not (min_v <= pred_f <= max_v): continue # Filter outliers
-                    
-                    # Temperature Normalization
-                    if 'Temp' in metric_name:
-                        if gt_f > 50 and pred_f < 50: gt_f = (gt_f - 32) * 5/9
-                        elif pred_f > 50 and gt_f < 50: pred_f = (pred_f - 32) * 5/9
-                        
-                    y_true.append(gt_f)
-                    y_pred.append(pred_f)
+                    val_float = float(pred_val)
+                    min_g, max_g = guardrails.get(pred_key, (0, 1000))
+                    if not (min_g <= val_float <= max_g):
+                        hallucination_count += 1
+                    total_extractions += 1
                 except: pass
         
-        if y_true:
-            results[metric_name] = mean_absolute_error(y_true, y_pred)
-        else:
-            results[metric_name] = None
+            # F1 Calc Logic
+            gt_val = row.get(gt_col)
+            has_gt = pd.notna(gt_val)
+            has_pred = pred_val is not None
+
+            if has_gt and has_pred:
+                try:
+                    gt_f, pred_f = float(gt_val), float(pred_val)
+                    if label == 'Temp':
+                        if gt_f > 50 and pred_f < 50: gt_f = (gt_f - 32) * 5/9
+                        elif pred_f > 50 and gt_f < 50: pred_f = (pred_f - 32) * 5/9
+                    
+                    if abs(gt_f - pred_f) <= tol:
+                        tp += 1
+                    else:
+                        fp += 1
+                except: fp += 1
+            elif has_gt and not has_pred:
+                fn += 1
+            elif not has_gt and has_pred:
+                fp += 1
+
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+        f1_scores.append(f1)
+        precision_scores.append(precision)
+        recall_scores.append(recall)
+
+        results[f'Prec_{label}'] = precision
+        results[f'Rec_{label}'] = recall
+        results[f'F1_{label}'] = f1
+
+    results['Macro_F1'] = np.mean(f1_scores) if f1_scores else 0
+    results['Mean_Precision'] = np.mean(precision_scores) if precision_scores else 0
+    results['Mean_Recall'] = np.mean(recall_scores) if recall_scores else 0
+    results['Hallucination_Rate'] = hallucination_count / total_extractions if total_extractions > 0 else 0
+    results['Parsing_Success_Rate'] = valid_json_count / len(df)
 
     # 3.2 Risk Scoring (NEWS2/MEWS)
     def parse_score(row):
@@ -406,39 +299,33 @@ def compute_metrics(df, system_name):
         m = MEWS_PATTERN.search(txt)
         return (int(n.group(1)) if n else None, int(m.group(1)) if m else None)
 
-    news_true, news_pred = [], []
-    
+    # 3.3 Clinical Score Accuracy (SEM - Strict Exact Match)
+    # news_true, news_pred = [], []
+    sem_news_matches = 0
+    sem_mews_matches = 0
+    valid_news_comparisons = 0
+    valid_mews_comparisons = 0
+
     for _, row in df.iterrows():
         gt_news = oracle_news2(row)
-        p_news, _ = parse_score(row)
+        gt_mews = oracle_mews(row)
+        p_news, p_mews = parse_score(row)
         
         if pd.notna(gt_news) and p_news is not None:
-            news_true.append(gt_news)
-            news_pred.append(p_news)
-            
-    if news_true:
-        results['Acc_NEWS2'] = accuracy_score(news_true, news_pred)
+            valid_news_comparisons += 1
+            if int(gt_news) == int(p_news):
+                sem_news_matches += 1
         
-        # Risk Category Accuracy
-        def cat(s): return 'Low' if s<=4 else ('Medium' if s<=6 else 'High')
-        c_true = [cat(x) for x in news_true]
-        c_pred = [cat(x) for x in news_pred]
-        results['Risk_Cat_Acc'] = accuracy_score(c_true, c_pred)
-        
-        # High Risk Recall (Critical for Sepsis)
-        cm = confusion_matrix(c_true, c_pred, labels=['Low', 'Medium', 'High'])
-        high_idx = 2
-        if sum(cm[high_idx, :]) > 0:
-            results['Recall_High'] = cm[high_idx, high_idx] / sum(cm[high_idx, :])
-        else:
-            results['Recall_High'] = 0.0
+        if pd.notna(gt_mews) and p_mews is not None:
+            valid_mews_comparisons += 1
+            if int(gt_mews) == int(p_mews):
+                sem_mews_matches += 1
+
+    results['SEM_NEWS2'] = sem_news_matches / valid_news_comparisons if valid_news_comparisons > 0 else 0
+    results['SEM_MEWS'] = sem_mews_matches / valid_mews_comparisons if valid_mews_comparisons > 0 else 0
             
-    # Success Rate (Valid JSONs)
-    valid_json = df['extracted_vitals'].notna().sum() if 'extracted_vitals' in df.columns else df['extracted_data'].notna().sum()
-    results['Valid_JSON_Rate'] = valid_json / len(df)
 
     return results
-
 # --- MAIN ---
 
 if __name__ == "__main__":
@@ -470,32 +357,41 @@ if __name__ == "__main__":
     # 3. Display final table
     if final_table:
         result_df = pd.DataFrame(final_table)
-        cols = ['System', 'Valid_JSON_Rate', 'Acc_NEWS2', 'Risk_Cat_Acc', 'Recall_High', 'MAE_HR', 'MAE_SBP', 'MAE_Temp']
-        cols = [c for c in cols if c in result_df.columns]
-
-        print("\n" + "="*60)
-        print("🏆  FINAL BENCHMARK RESULTS (TABLE 1)  🏆")
-        print("="*60)
-
+        cols_summary = ['System', 'Mean_Precision', 'Mean_Recall', 'Macro_F1', 'Parsing_Success_Rate', 'Hallucination_Rate', 'SEM_NEWS2', 'SEM_MEWS']
+        print("\n" + "="*80)
+        print("🏆  TABLE 1: SYSTEM OVERVIEW  🏆")
+        print("="*80)
         format_dict = {
-            'Valid_JSON_Rate': '{:.1%}',
-            'Acc_NEWS2': '{:.1%}',
-            'Risk_Cat_Acc': '{:.1%}',
-            'Recall_High': '{:.1%}',
-            'MAE_HR': '{:.2f}', 
-            'MAE_SBP': '{:.2f}', 
-            'MAE_Temp': '{:.2f}'
+            'Mean_Precision': '{:.3f}', 
+            'Mean_Recall': '{:.3f}', 
+            'Macro_F1': '{:.3f}', 
+            'SEM_NEWS2': '{:.4f}', 
+            'SEM_MEWS': '{:.4f}', 
+            'Hallucination_Rate': '{:.2%}',
+            'Parsing_Success_Rate': '{:.2%}'
         }
-
-        print(result_df[cols].to_string(formatters={
-            k: v.format for k, v in format_dict.items() if k in result_df[cols].columns
+        print(result_df[cols_summary].to_string(formatters={
+            k: v.format for k, v in format_dict.items()
         }))
-        print("="*60)
-        print("Interpretation Guide:")
-        print("- Valid_JSON_Rate: Robustness (Did it crash?)")
-        print("- Acc_NEWS2: Reasoning capability (Math)")
-        print("- MAE_*: Extraction precision (Lower is better)")
-        print("="*60)
-
+        print("="*80)
+        # --- TABLE 2: DETAILED EXTRACTION ---
+        print("\n" + "="*80)
+        print("🔬  TABLE 2: DETAILED EXTRACTION PERFORMANCE (Precision / Recall / F1)  🔬")
+        print("="*80)
+        
+        # Dynamically find per-target cols
+        targets = ['HR', 'SBP', 'RR', 'O2', 'Temp']
+        detailed_cols = ['System']
+        for t in targets:
+            detailed_cols.extend([f'Prec_{t}', f'Rec_{t}', f'F1_{t}'])
+            
+        # Helper to format compact
+        pd.set_option('display.max_columns', None)
+        pd.set_option('display.width', 1000)
+        
+        # Transpose or format nicely? Let's just print filtered columns with 2 decimal places
+        subset = result_df[detailed_cols]
+        print(subset.round(2).to_string(index=False))
+        print("="*80)
     else:
         logger.error("No valid experiments found.")

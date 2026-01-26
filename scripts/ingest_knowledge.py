@@ -22,17 +22,17 @@ def main():
     )
 
     # 2. Ingerir os PDFs normais (Exemplos)
-    # ingest_document(
-    #     filepath=os.path.join(docs_folder, "Sepsis-3.pdf"),
-    #     category="sepsis",
-    #     source_type="guideline"
-    # )
+    ingest_document(
+        filepath=os.path.join(docs_folder, "Sepsis-3.pdf"),
+        category="sepsis",
+        source_type="guideline"
+    )
     
-    # ingest_document(
-    #     filepath=os.path.join(docs_folder, "NEWS2_Chart.pdf"),
-    #     category="triage",
-    #     source_type="scoring_system"
-    # )
+    ingest_document(
+        filepath=os.path.join(docs_folder, "NEWS2_Chart.pdf"),
+        category="triage",
+        source_type="scoring_system"
+    )
 
 if __name__ == "__main__":
     main()

@@ -21,9 +21,9 @@ def filter_cohort(df, keywords, n=50):
     )
 
 # 3. Generate the random samples
-df_sepsis = filter_cohort(df, sepsis_keywords, n=150)
-df_cardio = filter_cohort(df, cardio_keywords, n=150)
-df_trauma = filter_cohort(df, trauma_keywords, n=200)
+df_sepsis = filter_cohort(df, sepsis_keywords, n=60)
+df_cardio = filter_cohort(df, cardio_keywords, n=60)
+df_trauma = filter_cohort(df, trauma_keywords, n=120)
 
 # 4. Concatenate and save
 gold_dataset = pl.concat([df_sepsis, df_cardio, df_trauma])
