@@ -335,7 +335,9 @@ if __name__ == "__main__":
 
     EXPERIMENTS = {
         "Baseline (Zero-Shot)": os.path.join(BASE_DIR, "results/baseline_results.jsonl"),
-        "TriaLogic (Agents)":   os.path.join(BASE_DIR, "results/experiment_results_v1.jsonl")
+        "Baseline (One-Shot)": os.path.join(BASE_DIR, "results/oneshot_baseline_results.jsonl"),
+        "TriaLogic (No RAG)": os.path.join(BASE_DIR, "results/no_validation_experiment_results_v1.jsonl"),
+        "TriaLogic (Agents)": os.path.join(BASE_DIR, "results/experiment_results_v1.jsonl")
     }
 
     
@@ -346,18 +348,34 @@ if __name__ == "__main__":
     # 1. Load and merge
     dfs = load_datasets(CSV_PATH, EXPERIMENTS)
 
-    # 2. Calculate metrics
+    # 2. Calculate metrics, garantindo todos os experimentos
     final_table = []
-    for name, df in dfs.items():
-        logger.info(f"⚙️  Processing metrics for {name}...")
-        metrics = compute_metrics(df, name)
-        metrics['System'] = name
+    metric_keys = [
+        'Mean_Precision', 'Mean_Recall', 'Macro_F1', 'Parsing_Success_Rate', 'Hallucination_Rate', 'SEM_NEWS2', 'SEM_MEWS',
+        'Prec_HR', 'Rec_HR', 'F1_HR', 'Prec_SBP', 'Rec_SBP', 'F1_SBP', 'Prec_RR', 'Rec_RR', 'F1_RR', 'Prec_O2', 'Rec_O2', 'F1_O2', 'Prec_Temp', 'Rec_Temp', 'F1_Temp'
+    ]
+    for name in EXPERIMENTS.keys():
+        df = dfs.get(name, None)
+        try:
+            if df is not None and not df.empty:
+                logger.info(f"⚙️  Processing metrics for {name}...")
+                metrics = compute_metrics(df, name)
+                metrics['System'] = name
+            else:
+                raise ValueError("DataFrame vazio ou não encontrado")
+        except Exception as e:
+            logger.warning(f"⚠️  No data for {name} (motivo: {e}). Filling with NaN.")
+            metrics = dict(System=name)
+            for k in metric_keys:
+                metrics[k] = float('nan')
         final_table.append(metrics)
-    
+
     # 3. Display final table
     if final_table:
         result_df = pd.DataFrame(final_table)
         cols_summary = ['System', 'Mean_Precision', 'Mean_Recall', 'Macro_F1', 'Parsing_Success_Rate', 'Hallucination_Rate', 'SEM_NEWS2', 'SEM_MEWS']
+        # Garante ordem e presença de todos os sistemas
+        result_df = result_df.set_index('System').reindex(list(EXPERIMENTS.keys())).reset_index()
         print("\n" + "="*80)
         print("🏆  TABLE 1: SYSTEM OVERVIEW  🏆")
         print("="*80)
@@ -384,7 +402,7 @@ if __name__ == "__main__":
         detailed_cols = ['System']
         for t in targets:
             detailed_cols.extend([f'Prec_{t}', f'Rec_{t}', f'F1_{t}'])
-            
+        
         # Helper to format compact
         pd.set_option('display.max_columns', None)
         pd.set_option('display.width', 1000)

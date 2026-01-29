@@ -39,6 +39,7 @@ class AgentState(TypedDict, total=False):
     context_category: Optional[str]
     context_text: Optional[str]
     auditor_report: Optional[Any]     # Final audit report (dict or error msg)
+    rag_context_used: bool
     
     next_step: Optional[str]
     plan: List[str]

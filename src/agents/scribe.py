@@ -1,3 +1,4 @@
+import re
 import logging
 import os
 from typing import Dict, Any, cast
@@ -33,6 +34,7 @@ class ScribeAgent:
         """
         self.model = model
         self.system_prompt = self._load_prompt(prompt_path)
+        logger.debug(f"Prompt loaded: {self.system_prompt[:120].replace('\n',' ')} ...")
         self.structured_model = self.model.with_structured_output(RawScribeLLM)
 
     def _load_prompt(self, path: str) -> str:
@@ -108,7 +110,9 @@ class ScribeAgent:
         # 1. Get the input text
         clinical_text = ""
         input_data = state.get("input")
-        
+        attempts = state.get("attempts", 0)
+        validation_messages = state.get("validation_messages", [])
+
         if input_data:
              if hasattr(input_data, "raw_text"):
                  clinical_text = input_data.raw_text
@@ -121,15 +125,56 @@ class ScribeAgent:
 
         messages = [
             SystemMessage(content=self.system_prompt),
-            HumanMessage(content=f"INPUT NOTES:\n{clinical_text}")
+            HumanMessage(content=f"Analyze the following clinical text and extract vital signs:\n\n--- BEGIN TEXT ---\n{clinical_text}\n--- END TEXT ---")
         ]
+
+        if validation_messages and attempts > 0:
+            logger.info(f"🔄 Scribe retrying with feedback ({len(validation_messages)} errors detected).")
+            
+            # Adiciona o histórico de erros como mensagens do 'usuário' (simulando um supervisor reclamando)
+            messages.extend(validation_messages)
+            
+            # Adiciona uma instrução final de reforço
+            reinforcement = (
+                "CRITICAL: The previous extraction contained the errors listed above. "
+                "Review the text again carefully. Do NOT repeat the same mistakes. "
+                "Ensure numbers are not concatenated (e.g., '12080' is wrong, '120/80' is correct)."
+            )
+            messages.append(HumanMessage(content=reinforcement))
 
         try:
             # 2. Extract data with the Scribe Agent
             logger.info("✍--- NODE: SCRIBE ---")
             logger.debug("Extracting data from clinical note...")
             response: RawScribeLLM = cast(RawScribeLLM, self.structured_model.invoke(messages))
+            logger.debug(f"Raw LLM response: {response}")
             vitals = response.vitals
+            if vitals.span_format == "NOT_FOUND":
+                if re.search(r'(?i)\b(VITALS?|BP \d{2,3}/\d{2,3})\b', clinical_text):
+                    logger.warning("Vitals exist in text but span selection failed. Forcing retry.")
+                    return {
+                        "is_success": False,
+                        "attempts": attempts + 1,
+                        "validation_errors": ["Vitals exist but incorrect span selected."]
+                    }
+            vital_span = vitals.vital_section_span or ""
+            
+            NEURO_ONLY_TERMS = [
+                "AVSS", "ALERT", "CONFUSED", "ORIENTED",
+                "PERRL", "EOMI", "FOLLOWS COMMANDS",
+                "MAE", "NO DRIFT"
+            ]
+
+            span_upper = vital_span.upper()
+
+            if not re.search(r"\d", vital_span) and any(t in span_upper for t in NEURO_ONLY_TERMS):
+                logger.warning("Neuro-only span selected. Rejecting and forcing retry.")
+                return {
+                    "error": "Neuro-only span selected instead of vitals.",
+                    "is_success": False,
+                    "attempts": state.get("attempts", 0) + 1,
+                    "validation_errors": ["Neuro-only span selected."]
+                }
             
             # 3. Maps ACVPU to AVPU
             logger.debug("Mapping ACVPU to AVPU...")

@@ -1,5 +1,5 @@
-from typing import List, Optional, Literal, Union, Any
-from pydantic import BaseModel, Field, model_validator
+from typing import List, Optional, Literal
+from pydantic import BaseModel, Field, model_validator, PrivateAttr
 import logging
 import re
 
@@ -7,6 +7,57 @@ logger = logging.getLogger(__name__)
 
 TypeACVPU = Literal['Alert', 'Confusion', 'Voice', 'Pain', 'Unresponsive']
 TypeVitalFormat = Literal['LABELED', 'UNLABELED_SEQUENCE', 'MIXED', 'NOT_FOUND']
+PHYSICAL_EXAM_PATTERNS = [
+    r'\bCARDIAC\b',
+    r'\bRRR\b',
+    r'\bS1\b',
+    r'\bS2\b',
+    r'\bMURMUR\b',
+    r'\bCTAB\b',
+    r'\bLUNGS?\b',
+    r'\bRESP\b',
+    r'\bABDOMEN\b',
+    r'\bSOFT\b',
+    r'\bNTND\b',
+    r'\bNEURO\b',
+    r'\bPERRL\b',
+    r'\bEOMI\b',
+    r'\bMAE\b',
+    r'\bNO DRIFT\b',
+    r'\bFOLLOWS COMMANDS\b'
+]
+
+VITAL_LABEL_PATTERNS = [
+    r'\bBP\b',
+    r'\bHR\b',
+    r'\bRR\b',
+    r'\bTEMP\b',
+    r'\bT\b',
+    r'\bSPO2\b',
+    r'\bO2\b',
+    r'\bVITALS?\b',
+    r'\bVS\b'
+]
+
+def is_physical_exam(span: str) -> bool:
+    if not span:
+        return False
+
+    span_upper = span.upper()
+
+    # 1️⃣ Se contém termos clássicos de exame físico
+    if any(re.search(p, span_upper) for p in PHYSICAL_EXAM_PATTERNS):
+        # 2️⃣ …e NÃO contém nenhum rótulo de sinal vital
+        if not any(re.search(p, span_upper) for p in VITAL_LABEL_PATTERNS):
+            return True
+
+    return False
+
+def looks_like_sequence(span: str) -> bool:
+    if not span:
+        return False
+    nums = re.findall(r'\d+(?:\.\d+)?', span)
+    return len(nums) >= 4
 
 class VitalsSchema(BaseModel):
     """
@@ -26,162 +77,285 @@ class VitalsSchema(BaseModel):
 class RawVitalsLLM(BaseModel):
     reasoning: str = Field(
         ..., 
-        description="Brief logic: Where are the vitals located? Is it a list or a sentence?"
+        description="Brief logic: Where are the vitals located?"
     )
 
     vital_section_span: Optional[str] = Field(
         ..., 
-        description="EXACT copy of the text segment containing vital signs. Example: 'VS: T 99.5, BP 160/81...'"
+        description="Exact text span containing vitals (must contain numbers'"
     )
 
     span_format: TypeVitalFormat = Field(
         ..., 
-        description="STRICT RULE: 'LABELED' requires specific keys NEXT TO values (e.g. 'HR: 80', 'BP 120/80'). Generic headers like 'VS:', 'Vitals:', or units like 'RA', '%', 'F' DO NOT count as labels. If it's just numbers with a header, use 'UNLABELED_SEQUENCE'."
+        description="LABELED, UNLABELED_SEQUENCE, MIXED, NOT_FOUND"
     )
 
     heartrate: Optional[int] = Field(None, description="Heart Rate (BPM)")
     resprate: Optional[int] = Field(None, description="Respiratory Rate (breaths/min)")
     temperature: Optional[float] = Field(None, description="Temperature (F or C)")
-    o2sat: Optional[int] = Field(None, description="Oxygen Saturation (%). Generally accompanied by '%'.")
+    o2sat: Optional[int] = Field(None, description="Oxygen Saturation (%).")
     sbp: Optional[int] = Field(None, description="Systolic BP")
     dbp: Optional[int] = Field(None, description="Diastolic BP")
     
-    supplemental_oxygen: bool = Field(False, description="True if text mentions 'NC', 'mask', 'L/min'. False if 'RA', 'Room Air'.")
+    supplemental_oxygen: bool = Field(False, description="True if 'NC','mask','L/min' etc.")
     acvpu: TypeACVPU = Field(..., description="Mental status: Alert, Confusion, Voice, Pain, Unresponsive")
+    _used_numeric_values: set[float] = PrivateAttr(default_factory=set)
 
+    # ---------------- UTILITIES ----------------
     def _parse_range_or_val(self, val_str: str) -> float:
-        clean = re.sub(r'[^\d.-]', '', val_str)
+        clean = re.sub(r'[^\\d.-]', '', val_str)
         if '-' in clean:
             parts = [float(x) for x in clean.split('-') if x.strip()]
-            if parts:
-                return sum(parts) / len(parts)
+            return sum(parts) / len(parts) if parts else 0.0
         try:
-            return float(clean)
+          return float(clean)
         except ValueError:
             return 0.0
+
+
+    def _consume(self, val: float) -> bool:
+        if val in self._used_numeric_values:
+         return False
+        self._used_numeric_values.add(val)
+        return True
+    
+    
+    # ---------------- GUARDRAILS ----------------
+    @model_validator(mode="after")
+    def reject_physical_exam(self):
+        if self.vital_section_span and is_physical_exam(self.vital_section_span):
+            logger.warning("Physical exam detected. Rejecting span.")
+            self.vital_section_span = None
+            self.span_format = 'NOT_FOUND'
+        return self
+                
+    # ---------------- RECOVERY ----------------
+    @model_validator(mode="after")
+    def recover_labeled_and_sequence(self):
+        span = self.vital_section_span
+
+
+        if not span:
+            return self
+        
+
+        is_sequence = looks_like_sequence(span)
+        
+        if is_sequence:
+            self.span_format = 'UNLABELED_SEQUENCE'
+
+        span_up = span.upper()
+        bp_match = re.search(r'(\d{2,3})\s*[/-]\s*(\d{2,3})', span)
+        if bp_match:
+            try:
+                sbp = float(bp_match.group(1))
+                dbp = float(bp_match.group(2))
+                if 40 < sbp < 300 and 30 < dbp < 200:
+                    self.sbp = int(sbp)
+                    self.dbp = int(dbp)
+            except Exception:
+                logger.debug("BP parse failed in recover_labeled_and_sequence", exc_info=True)
+
+        o2_match = re.search(
+            r'(?i)\b(?:SAO2|SPO2|O2SAT|O2)\s*[:=]?\s*(\d{2,3})\s*%?',
+            span
+        )
+
+        if not o2_match:
+            # fallback: naked percentage like "94%"
+            o2_match = re.search(r'\b(\d{2,3})\s*%', span)
+
+        if o2_match:
+            try:
+                o2_val = int(o2_match.group(1))
+                if 50 <= o2_val <= 100:
+                    self.o2sat = o2_val
+            except Exception:
+                pass
+
+        span_wo_bp = re.sub(r'\d{2,3}\s*[/-]\s*\d{2,3}', ' ', span)
+        if not is_sequence:
+            parts = re.split(r'[|,\n]', span)
+            for part in parts:
+                up = part.upper()
+                nums = re.findall(r"\d+(?:\.\d+)?", part)
+
+
+                for n in nums:
+                    val = float(n)
+
+
+                    # Temperature
+                    if self.temperature is None and any(re.search(r'\b(TEMP|TEMPERATURE|T[:\s])', up) for _ in [0]):
+                        if nums:
+                            tval = self._parse_range_or_val(nums[0])
+                            if 35 <= tval <= 105:
+                                # consume and set
+                                if self._consume(tval):
+                                    self.temperature = tval
+                                    continue
+
+
+                    # HR
+                    if self.heartrate is None and 'HR' in up or 'PULSE' in up or re.search(r'\bP[:\s]\b', up):
+                        if nums:
+                            hval = self._parse_range_or_val(nums[0])
+                            if 30 <= hval <= 250 and self._consume(hval):
+                                self.heartrate = int(round(hval))
+                                continue
+
+                    # RR
+                    if self.resprate is None and ('RR' in up or 'RESP' in up) and 8 <= val <= 40:
+                        if nums:
+                            rval = self._parse_range_or_val(nums[0])
+                            if 5 <= rval <= 60 and self._consume(rval):
+                                self.resprate = int(round(rval))
+                                continue
+
+                    # O2 Sat
+                    if self.o2sat is None and ('%' in part) or ('O2' in up) or ('SPO2' in up) or ('SAT' in up):
+                        if nums:
+                            oval = self._parse_range_or_val(nums[0])
+                            if 50 <= oval <= 100 and self._consume(oval):
+                                self.o2sat = int(round(oval))
+                                continue
+
+                    for n in nums:
+                        val = self._parse_range_or_val(n)
+                        if val == 0:
+                            continue
+
+                        if self.temperature is None and ((35 <= val <= 42) or (95 <= val <= 105)):
+                            if self._consume(val):
+                                self.temperature = val
+                                break
+
+                        if self.heartrate is None and (40 <= val <= 180):
+                            if self._consume(val):
+                                self.heartrate = int(round(val))
+                                break
+
+                        if self.resprate is None and (8 <= val <= 40):
+                            if self._consume(val):
+                                self.resprate = int(round(val))
+                                break
+                            
+                        if self.o2sat is None and '%' in part:
+                            if 50 <= val <= 100 and self._consume(val):
+                                self.o2sat = int(round(val))
+                                break
+            return self
+        
+        vals = []
+        for n in re.findall(r"\d+(?:\.\d+)?", span_wo_bp):
+            try:
+                vals.append(float(n))
+            except Exception:
+                pass
+
+        if self.temperature is None and vals:
+            candidate = vals[0]
+            if (candidate != int(candidate)) or (35 <= candidate <= 42) or (95 <= candidate <= 105):
+                self.temperature = candidate
+                vals.pop(0)
+
+        if self.heartrate is None and vals:
+            candidate = vals.pop(0)
+            if 30 <= candidate <= 250:
+                self.heartrate = int(round(candidate))
+
+        if self.resprate is None and vals:
+            candidate = vals.pop(0)
+            if 5 <= candidate <= 60:
+                self.resprate = int(round(candidate))
+
+        # if self.o2sat is None and vals and '%' in span:
+        #     candidate = vals.pop(0)
+        #     if 50 <= candidate <= 100:
+        #         self.o2sat = int(round(candidate))
+
+        return self
+    
+    @model_validator(mode="after")
+    def enforce_label_binding(self):
+        """
+        Strong regex-based corrections: if explicit labels are present,
+        prefer regex-captured values over heuristics.
+        """
+        span = self.vital_section_span
+        if not span or self.span_format == 'NOT_FOUND':
+            return self
+
+        clean_span = span.replace('\n', ' ').strip()
+
+        patterns = {
+            'heartrate': r'(?i)\b(?:HR|PULSE|P)[:\s=-]*?(\d{2,3})\b',
+            'resprate': r'(?i)\b(?:RR|RESP|R)[:\s=-]*?(\d{1,2})\b',
+            'temperature': r'(?i)\b(?:T|TEMP|TEMPERATURE)[:\s=-]*?(\d{2,3}\.?\d?)\b',
+            'o2sat': r'(?i)\b(?:O2|SAT|SPO2|O2SAT)[:\s=-]*?(\d{2,3})\b'
+        }
+
+        # HR
+        m = re.search(patterns['heartrate'], clean_span)
+        if m:
+            try:
+                hr_val = int(m.group(1))
+                if 30 <= hr_val <= 250:
+                    if self.heartrate != hr_val:
+                        logger.warning(f"AUTO-CORRECTION: Overriding HR {self.heartrate} -> {hr_val}")
+                    self.heartrate = hr_val
+            except Exception:
+                pass
+
+        # RR
+        m = re.search(patterns['resprate'], clean_span)
+        if m:
+            try:
+                rr_val = int(m.group(1))
+                if 3 <= rr_val <= 60:
+                    self.resprate = rr_val
+            except Exception:
+                pass
+
+        # Temp
+        m = re.search(patterns['temperature'], clean_span)
+        if m:
+            try:
+                t_val = float(m.group(1))
+                if 25 <= t_val <= 105:  # broad guard
+                    if self.temperature is None or abs(self.temperature - t_val) > 0.5:
+                        logger.warning(f"AUTO-CORRECTION: Overriding Temp {self.temperature} -> {t_val}")
+                    self.temperature = t_val
+            except Exception:
+                pass
+
+        # O2
+        m = re.search(patterns['o2sat'], clean_span)
+        if m:
+            try:
+                o2_val = int(m.group(1))
+                if 0 <= o2_val <= 100:
+                    self.o2sat = o2_val
+            except Exception:
+                pass
+
+        return self
 
     @model_validator(mode='after')
     def clinical_sanity_check(self):
         logger.debug("Checking clinical sanity...")
-        if self.sbp and self.heartrate and self.sbp == self.heartrate:
-            logger.warning(f"⚠ GUARDRAIL: SBP ({self.sbp}) == HR. Assuming parsing error. Resetting HR.")
-            self.heartrate = None
+        if self.sbp and self.heartrate:
+            if abs(self.sbp - self.heartrate) <= 3:
+                logger.warning("SBP≈HR collision. Resetting HR.")
+                self.heartrate = None
         
         if self.o2sat and self.o2sat > 100:
             self.o2sat = None
 
         return self
     
-    @model_validator(mode="after")
-    def clean_blood_pressure(self):
-        logger.debug("Cleaning Blood Pressure...")
-        if isinstance(self.sbp, str) and '/' in self.sbp:
-            try:
-                parts = self.sbp.split('/')
-                self.sbp = int(parts[0].strip())
-                self.dbp = int(parts[1].strip())
-            except:
-                logger.warning("⚠ Blood Pressure couldn't be parsed.")
-                self.sbp = None
 
-        if isinstance(self.sbp, str): 
-            logger.warning("⚠ Blood Pressure couldn't be parsed.")
-            self.sbp = None
-        
-        return self
-
-    @model_validator(mode="after")
-    def recover_comma_separated(self):
-        logger.debug("Checking and correcting vitals...")
-        if not self.vital_section_span:
-            logger.warning("⚠ No vitals span found.")
-            return self
-            
-        # 1. Dynamic delimiter
-        span = self.vital_section_span
-        if ',' in span:
-            parts = [p.strip() for p in span.split(',') if p.strip()]
-        else:
-            parts = span.split()
-            
-        if len(parts) >= 2:
-            logger.info(f"Attempting Label-Aware Recovery on span: {parts}")
-            
-            for part in parts:
-                upper_part = part.upper()
-                
-                # --- 0. Labels Detection ---
-                target_field = None
-                if any(x in upper_part for x in ['T ', 'TEMP', ' T ']) or upper_part.startswith('T '):
-                    target_field = 'temperature'
-                elif any(x in upper_part for x in ['P ', 'HR ', 'PULSE', 'HR:', 'P:']):
-                    target_field = 'heartrate'
-                elif any(x in upper_part for x in ['R ', 'RR ', 'RESP', 'R:', 'RR:']):
-                    target_field = 'resprate'
-                elif any(x in upper_part for x in ['O2', 'SAT', 'SPO2']):
-                    target_field = 'o2sat'
-                
-                # --- 1. BP Check ---
-                if '/' in part: 
-                    try:
-                        s_str, d_str = part.split('/')
-                        s_val = self._parse_range_or_val(s_str)
-                        d_val = self._parse_range_or_val(d_str)
-                        if s_val > 0 and d_val > 0:
-                            self.sbp = int(s_val)
-                            self.dbp = int(d_val)
-                            continue 
-                    except: pass
-
-                # --- 2. Candidates Extraction ---
-                candidates = re.findall(r'\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)?', part)
-                
-                for cand in candidates:
-                    try:
-                        val = self._parse_range_or_val(cand)
-                        if val == 0: continue
-                    except ValueError: continue
-
-                    if target_field == 'temperature':
-                            if (35 <= val <= 105): 
-                                self.temperature = val
-                                break
-                    elif target_field == 'heartrate':
-                            if (30 <= val <= 250): 
-                                self.heartrate = int(val)
-                                break
-                    elif target_field == 'resprate':
-                            if (8 <= val <= 60): 
-                                self.resprate = int(val)
-                                break
-                    elif target_field == 'o2sat':
-                            if (50 <= val <= 100): 
-                                self.o2sat = int(val)
-                                break
-                    
-                    if not target_field:
-                        # Temp
-                        if not self.temperature and ((95 <= val <= 105) or (35 <= val <= 40)):
-                            self.temperature = val
-                            break 
-                        # HR
-                        if not self.heartrate and (40 <= val <= 180):
-                                if abs(val - round(val)) < 0.1: 
-                                    self.heartrate = int(val)
-                                    break
-                        # RR
-                        if not self.resprate and (8 <= val <= 40):
-                            if abs(val - round(val)) < 0.1:
-                                self.resprate = int(val)
-                                break
-                        # O2
-                        if not self.o2sat and (80 <= val <= 100):
-                            if abs(val - round(val)) < 0.1:
-                                self.o2sat = int(val)
-                                break
-
-        return self
-
+    
 class RawScribeLLM(BaseModel):
     chief_complaint: Optional[str]
     vitals: RawVitalsLLM
@@ -203,8 +377,6 @@ class RawScribeLLM(BaseModel):
                     f"CLINICAL MISMATCH WARNING: Chief Complaint indicates '{self.chief_complaint}', "
                     f"but ACVPU is '{acvpu_val}'. Verify if patient is Alert but Disoriented."
                 )
-                # Nota para TCC: Não alteramos o dado automaticamente para evitar 
-                # corrupção de dados (pode ser que o paciente melhorou), mas logamos para revisão.
         
         return self
     

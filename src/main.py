@@ -79,7 +79,7 @@ def create_workflow():
         {
             "scribe": "scribe",
             "mathematician": "mathematician",
-            "clinical_rag": "clinical_rag",
+            "clinical_rag": "synthesizer",
             "end": END
         }
     )
@@ -89,13 +89,13 @@ def create_workflow():
         "mathematician",
         supervisor_router,
         {
-            "clinical_rag": "clinical_rag",
+            "clinical_rag": "synthesizer",
             "end": END,
-            "auditor": "clinical_rag"} # Mapeie auditor->clinical_rag se tiver string velha
+            "auditor": "synthesizer"} 
     )
 
     # Clinical RAG (Retrieval) -> Synthesizer (Audit) -> Supervisor Flow
-    workflow.add_edge("clinical_rag", "synthesizer")
+    # workflow.add_edge("clinical_rag", "synthesizer")
     workflow.add_edge("synthesizer", END)
 
     return workflow.compile()

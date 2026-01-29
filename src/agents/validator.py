@@ -41,6 +41,9 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
 
     data = state.get("extracted_data")
     
+    if not data or not hasattr(data, "vitals"):
+        return {"validation_errors": ["No extracted data found."]}
+    
     if isinstance(data, dict):
         try:
             data = RawScribeLLM(**data)
@@ -116,8 +119,51 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
             errors.append(msg)
             messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
         
-        if errors is None and messages is None:
-            logger.info("Data validated succesfully!")
+        all_none = all(v is None for v in [vitals.heartrate, vitals.resprate, vitals.temperature, vitals.o2sat, vitals.sbp])
+    
+        if all_none:
+            msg = "Extraction failed to retrieve ANY numeric vitals. The selected span was likely text-only or invalid."
+            errors.append(msg)
+            messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Please re-read the text and find the section with ACTUAL NUMBERS (e.g., 'BP 120/80', 'HR 80')."))
+            logger.warning(msg)
+        
+        updates = {}
+        output_update = {
+            "validation_errors": errors,
+            "validation_messages": messages,
+        }
+        
+        if errors and state.get("attempts", 0) >= 2:
+            if vitals.sbp is not None and (vitals.sbp > 300 or vitals.sbp < 40):
+                logger.warning(f"Scrubbing invalid SBP: {vitals.sbp}")
+                updates['sbp'] = None
+                msg = f"SBP value {vitals.sbp} is physiologically improbable and was removed."
+                errors.append(msg)
+                messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
+
+            if vitals.dbp is not None and (vitals.dbp > 200 or vitals.dbp < 10):
+                logger.warning(f"Scrubbing invalid DBP: {vitals.dbp}")
+                updates['dbp'] = None
+                msg = f"DBP value {vitals.dbp} is physiologically improbable and was removed."
+                errors.append(msg)
+                messages.append(HumanMessage(content=f"[CRITICAL ERROR]: {msg} Check original text."))
+
+            if vitals.heartrate is not None and (vitals.heartrate > 220 or vitals.heartrate < 20):
+                logger.warning(f"Scrubbing invalid HR: {vitals.heartrate}")
+                updates['heartrate'] = None
+                
+            if updates:
+                new_vitals = vitals.model_copy(update=updates)
+                logger.info(f"[DEBUG] Vitals após scrub: SBP={new_vitals.sbp}, DBP={new_vitals.dbp}, HR={new_vitals.heartrate}")
+                new_clinical_data = data.model_copy(update={"vitals": new_vitals})
+                data = new_clinical_data  # Atualiza o objeto data para refletir os valores limpos
+                output_update["extracted_data"] = new_clinical_data
+                state["extracted_data"] = new_clinical_data
+                # Força atualização explícita do dict do estado global
+                state.update({"extracted_data": new_clinical_data})
+
+            if errors is None and messages is None:
+                logger.info("Data validated succesfully!")
 
     return {
         "extracted_data": data.model_dump(),

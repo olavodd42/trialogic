@@ -57,16 +57,21 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
     extracted_data = state.get("extracted_data")
     risk_report = state.get("risk_score_report")
     rag_context = state.get("context_text", "No specific RAG context found.")
+    rag_context_used = state.get("rag_context_used", False)
+# === RETRIEVED GUIDELINES ===
+#         {rag_context}
+    # 1. Describe o contexto condicionalmente
+    if True:
+        
+        full_context_content = f"""
+        === STATIC PROTOCOL DEFINITIONS ===
+        {STATIC_RULES}
 
-    # 1. Describe the context
-    full_context_content = f"""
-    === STATIC PROTOCOL DEFINITIONS ===
-    {STATIC_RULES}
-
-    === RETRIEVED GUIDELINES ===
-    {rag_context}
-    """
-
+        
+        """
+    else:
+        full_context_content = ""
+    
     full_patient_content = f"EXTRACTED DATA: {extracted_data}\nRISK CALCULATIONS: {risk_report}"
 
     llm = ChatOllama(
@@ -89,6 +94,8 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
         {patient}
         """)
     ])
+
+    logger.debug(prompt)
 
     chain = prompt | structured_llm
 
@@ -120,8 +127,12 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
         
         logger.info(f"📝 Veredict: {evaluation.clinical_risk_category}")
 
+        # Ajusta o campo protocol_reference se não houver contexto RAG
+        auditor_report = evaluation.model_dump()
+        if not rag_context_used:
+            auditor_report["protocol_reference"] = ""
         return {
-            "auditor_report": evaluation.model_dump()
+            "auditor_report": auditor_report
         }
 
     except Exception as e:
