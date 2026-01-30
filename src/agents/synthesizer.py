@@ -58,8 +58,7 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
     risk_report = state.get("risk_score_report")
     rag_context = state.get("context_text", "No specific RAG context found.")
     rag_context_used = state.get("rag_context_used", False)
-# === RETRIEVED GUIDELINES ===
-#         {rag_context}
+
     # 1. Describe o contexto condicionalmente
     if True:
         
@@ -67,7 +66,8 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
         === STATIC PROTOCOL DEFINITIONS ===
         {STATIC_RULES}
 
-        
+        === RETRIEVED GUIDELINES ===
+        {rag_context}
         """
     else:
         full_context_content = ""

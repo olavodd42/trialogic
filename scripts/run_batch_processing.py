@@ -21,7 +21,7 @@ SEED = 42
 
 # Caminhos
 INPUT_CSV = os.path.join(os.getcwd(), "data/gold_standard_dataset.csv") # O dataset filtrado que criamos antes
-OUTPUT_FILE = os.path.join(os.getcwd(), "results/norag_experiment_results_v1.jsonl")
+OUTPUT_FILE = os.path.join(os.getcwd(), "results/xperiment_results_v1.jsonl")
 
 app = create_workflow()
 

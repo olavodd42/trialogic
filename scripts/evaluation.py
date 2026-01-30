@@ -336,7 +336,7 @@ if __name__ == "__main__":
     EXPERIMENTS = {
         "Baseline (Zero-Shot)": os.path.join(BASE_DIR, "results/baseline_results.jsonl"),
         "Baseline (One-Shot)": os.path.join(BASE_DIR, "results/oneshot_baseline_results.jsonl"),
-        "TriaLogic (No RAG)": os.path.join(BASE_DIR, "results/no_validation_experiment_results_v1.jsonl"),
+        "TriaLogic (No RAG)": os.path.join(BASE_DIR, "results/norag_experiment_results_v1.jsonl"),
         "TriaLogic (Agents)": os.path.join(BASE_DIR, "results/experiment_results_v1.jsonl")
     }
 
