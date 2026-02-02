@@ -2,7 +2,7 @@ import os
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_ollama import OllamaEmbeddings
 from pydantic import SecretStr
 import logging
 
@@ -61,8 +61,8 @@ def ingest_document(filepath: str, category: str, source_type: str):
 
     # 5. Embeddings Configuration
     # Using BioLinkBERT with sentence-transformers via HuggingFaceEmbeddings
-    embedding_function = HuggingFaceEmbeddings(
-        model_name="michiyasunaga/BioLinkBERT-base"
+    embedding_function = OllamaEmbeddings(
+        model="llama3.1"
     )
 
     # 6. Indexing on ChromaDB

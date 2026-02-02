@@ -1,7 +1,6 @@
 import os
 import sys
 
-# Garante que o python encontra os módulos src
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Importa a função nova (note que mudei o nome para ingest_document)

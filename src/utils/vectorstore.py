@@ -15,7 +15,7 @@ def get_vectorstore():
         logger.error("ChromaDB not found.")
         raise FileNotFoundError(f"ChromaDB not found at {PERSIST_DIRECTORY}. Run ingestion first.")
     
-    embedding_function = OllamaEmbeddings(model="nomic-embed-text")
+    embedding_function = OllamaEmbeddings(model="llama3.1")
     
     return Chroma(
         persist_directory=PERSIST_DIRECTORY, 
