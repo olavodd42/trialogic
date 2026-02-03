@@ -54,8 +54,11 @@ def main():
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
     # 2. Processing loop
+    import time
+    latencies = []
     with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
         for row in tqdm(df.to_dict(orient="records"), total=len(df), desc="Processing Agents"):
+            start_time = time.time()
             subject_id = row['subject_id']
             hadm_id = row.get('hadm_id')
             text = row['text']
@@ -78,6 +81,11 @@ def main():
 
             try:
                 final_state = app.invoke({"input": input_obj})
+
+                # Reporta timings dos agentes
+                if hasattr(app, "get_timings"):
+                     timings = app.get_timings(final_state)
+                     logger.info(f"Tempo por agente: {timings}")
 
                 # Safely extract vitals whether extracted_data is a dict or Pydantic model
                 extracted_data = final_state.get("extracted_data")
@@ -106,7 +114,13 @@ def main():
                 logger.error(f"\n❌Error on ID {subject_id}: {e}")
                 error_record = {"subject_id": subject_id, "hadm_id": hadm_id, "error": str(e)}
                 f.write(json.dumps(error_record) + "\n")
+            finally:
+                end_time = time.time()
+                latencies.append(end_time - start_time)
 
+    if latencies:
+        avg_latency = sum(latencies) / len(latencies)
+        logger.info(f"Tempo médio de inferência por caso (TriaLogic): {avg_latency:.2f} segundos")
     print(f"\n✅ Finished experiment. Results saved in {OUTPUT_FILE}")
 
 if __name__ == "__main__":

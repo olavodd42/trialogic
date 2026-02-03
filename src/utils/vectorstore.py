@@ -1,7 +1,9 @@
 import os
 import logging
-from langchain_ollama import OllamaEmbeddings
 from langchain_chroma import Chroma
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +17,10 @@ def get_vectorstore():
         logger.error("ChromaDB not found.")
         raise FileNotFoundError(f"ChromaDB not found at {PERSIST_DIRECTORY}. Run ingestion first.")
     
-    embedding_function = OllamaEmbeddings(model="llama3.1")
+    from langchain_openai import OpenAIEmbeddings
+    embedding_function = OpenAIEmbeddings(
+        model="text-embedding-3-small",
+    )
     
     return Chroma(
         persist_directory=PERSIST_DIRECTORY, 

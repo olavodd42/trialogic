@@ -72,7 +72,7 @@ class VitalsSchema(BaseModel):
     avpu: Optional[str] = None
     acvpu: Optional[TypeACVPU] = None
     supplemental_oxygen: bool = Field(default=False)
-    acuity: Optional[int] = None
+    # acuity removido
 
 class RawVitalsLLM(BaseModel):
     reasoning: str = Field(

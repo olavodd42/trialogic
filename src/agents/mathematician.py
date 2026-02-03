@@ -3,7 +3,7 @@ import logging
 import json
 import traceback
 from typing import Dict, Any
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from dotenv import load_dotenv
 
@@ -20,11 +20,10 @@ logger = logging.getLogger(__name__)
 SEED = 42
 
 # 1. LLM Configuration
-llm = ChatOllama(
-    base_url="http://localhost:11434",
-    model="llama3.1",
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
     temperature=0,
-    seed=SEED
+    seed=42
 )
 
 

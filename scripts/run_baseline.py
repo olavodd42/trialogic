@@ -77,7 +77,9 @@ def robust_json_extractor(text: str) -> Optional[Dict]:
     return None
 
 def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None):
+    import time
     results = []
+    latencies = []
     
     # 3. Limit for fast test if necessary
     if limit:
@@ -86,6 +88,7 @@ def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None):
     logger.info(f"🚀 Starting baseline (Vanilla Llama 3.1) in {len(df)} cases...")
 
     for index, row in tqdm(df.iterrows(), total=len(df)):
+        start_time = time.time()
         text = str(row.get('text', ''))
 
         if len(text) < 15:
@@ -130,7 +133,12 @@ def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None):
                 "error": f"EXCEPTION: {str(e)}",
                 "method": "baseline_error"
             })
+        finally:
+            end_time = time.time()
+            latencies.append(end_time - start_time)
 
+    avg_latency = sum(latencies) / len(latencies) if latencies else 0
+    logger.info(f"Tempo médio de inferência por caso (baseline zero-shot): {avg_latency:.2f} segundos")
     return results
 
 if __name__ == "__main__":

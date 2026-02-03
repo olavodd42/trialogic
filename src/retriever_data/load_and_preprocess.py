@@ -1,11 +1,12 @@
 import os
+
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings
-from pydantic import SecretStr
+from dotenv import load_dotenv
 import logging
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Configuração de Diretório
@@ -61,8 +62,10 @@ def ingest_document(filepath: str, category: str, source_type: str):
 
     # 5. Embeddings Configuration
     # Using BioLinkBERT with sentence-transformers via HuggingFaceEmbeddings
-    embedding_function = OllamaEmbeddings(
-        model="llama3.1"
+    from langchain_openai import OpenAIEmbeddings
+    import os
+    embedding_function = OpenAIEmbeddings(
+        model="text-embedding-3-small"
     )
 
     # 6. Indexing on ChromaDB

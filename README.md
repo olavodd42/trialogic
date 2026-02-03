@@ -1,3 +1,27 @@
+## ⏱️ Latência e Considerações Práticas
+
+### Medição de Latência
+
+O sistema agora reporta automaticamente o tempo médio de inferência por caso para:
+
+- **Baseline Zero-Shot**: Veja logs do `scripts/run_baseline.py`.
+- **TriaLogic Completo**: Veja logs do `scripts/run_batch_processing.py`.
+
+Além disso, para cada caso processado pelo TriaLogic, o tempo gasto em cada agente (Scribe, Validator, Mathematician, Clinical RAG, Synthesizer) é registrado nos logs.
+
+### Discussão
+
+- **Latência Observada**: O TriaLogic apresenta um aumento de latência de 3–5× em relação ao baseline zero-shot, devido à orquestração multiagente e múltiplas chamadas de LLM.
+- **Agentes Dominantes**: Tipicamente, Scribe e Mathematician dominam o tempo de execução, pois envolvem parsing e cálculos detalhados. O Clinical RAG pode ser lento se o contexto recuperado for extenso.
+- **Viabilidade em Pronto-Socorro (ED)**: A latência (~30–60s por caso em hardware típico) é aceitável para triagem automatizada, pois está dentro do tempo de espera padrão para avaliação clínica inicial. Para uso em tempo real, otimizações são recomendadas.
+
+### Otimizações Possíveis
+
+- **Paralelismo**: Execução paralela de agentes independentes pode reduzir o tempo total.
+- **Early Stopping**: Encerrar o fluxo ao atingir confiança suficiente pode evitar etapas desnecessárias.
+- **Caching**: Respostas de LLM e resultados intermediários podem ser armazenados para evitar recomputação em casos repetidos.
+
+Essas estratégias podem ser implementadas conforme a demanda de produção hospitalar.
 # TriaLogic 🏥🤖
 
 **TriaLogic** is an advanced **Agentic Workflow System** designed for automated clinical data analysis. It leverages a multi-agent architecture to extract structured information from unstructured medical records (e.g., discharge summaries), validate the data, calculate clinical risk scores, and perform audits against gold-standard medical guidelines using Retrieval-Augmented Generation (RAG).

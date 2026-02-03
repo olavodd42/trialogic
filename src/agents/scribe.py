@@ -2,6 +2,7 @@ import re
 import logging
 import os
 from typing import Dict, Any, cast
+from langchain_openai import ChatOpenAI
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import ValidationError
@@ -9,7 +10,10 @@ from pydantic import ValidationError
 from src.schemas.scribe_schema import RawScribeLLM, VitalsSchema, ClinicalSchema
 from src.state.agent_state import AgentState
 from src.utils.vitals_normalizer import normalize_temperature
+from src.utils.run_with_timeout import run_with_timeout
+from dotenv import load_dotenv
 
+load_dotenv()
 # Configuração de Logs
 logger = logging.getLogger(__name__)
 
@@ -146,7 +150,8 @@ class ScribeAgent:
             # 2. Extract data with the Scribe Agent
             logger.info("✍--- NODE: SCRIBE ---")
             logger.debug("Extracting data from clinical note...")
-            response: RawScribeLLM = cast(RawScribeLLM, self.structured_model.invoke(messages))
+            raw_response = run_with_timeout(self.structured_model.invoke, messages, timeout=60, retries=3)
+            response: RawScribeLLM = cast(RawScribeLLM, raw_response)
             logger.debug(f"Raw LLM response: {response}")
             vitals = response.vitals
             if vitals.span_format == "NOT_FOUND":
@@ -193,7 +198,7 @@ class ScribeAgent:
                 avpu=avpu_mapped,
                 acvpu=final_acvpu,
                 supplemental_oxygen=vitals.supplemental_oxygen or False,
-                acuity=None 
+                # acuity removido
             )
 
             clinical_output = ClinicalSchema(
@@ -225,3 +230,17 @@ class ScribeAgent:
                 "error": str(e),
                 "is_success": False
             }
+
+if __name__ == "__main__":
+    llm = ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0,
+        seed=42,
+        timeout=60
+    )
+    agent = ScribeAgent(llm)
+    test_messages = [
+        SystemMessage(content="Say 'pong'"),
+        HumanMessage(content="ping")
+    ]
+    print(run_with_timeout(llm.invoke, test_messages, timeout=15))

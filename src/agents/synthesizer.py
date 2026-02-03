@@ -1,6 +1,6 @@
 import os
 from typing import Dict, Any, cast
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 import logging
 from dotenv import load_dotenv
@@ -56,8 +56,8 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
 
     extracted_data = state.get("extracted_data")
     risk_report = state.get("risk_score_report")
-    rag_context = state.get("context_text", "No specific RAG context found.")
-    rag_context_used = state.get("rag_context_used", False)
+    rag_context = state.get("rag_context")
+    rag_context_used = bool(rag_context)
 
     # 1. Describe o contexto condicionalmente
     if True:
@@ -66,19 +66,20 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
         === STATIC PROTOCOL DEFINITIONS ===
         {STATIC_RULES}
 
-        === RETRIEVED GUIDELINES ===
+        === RETRIEVED CLINICAL GUIDELINES ===
         {rag_context}
         """
+        # === RETRIEVED GUIDELINES ===
+        # {rag_context}
     else:
         full_context_content = ""
     
     full_patient_content = f"EXTRACTED DATA: {extracted_data}\nRISK CALCULATIONS: {risk_report}"
 
-    llm = ChatOllama(
-        base_url="http://localhost:11434",
-        model="llama3.1",
+    llm = ChatOpenAI(
+        model="gpt-4o-mini",
         temperature=0,
-        seed=SEED
+        seed=42
     )
     structured_llm = llm.with_structured_output(AuditorOutput)
 

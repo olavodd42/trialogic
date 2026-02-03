@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Mapping
 from pydantic import BaseModel, Field
 
 class ScoreCapability(BaseModel):
@@ -39,4 +39,7 @@ class MathematicianSchema(BaseModel):
     overall_risk_assessment: str = Field(..., description="Synthesized assessment of the patient's stability based on all scores.")
     
     # Field to inject raw data (Optional, filled via code, not by LLM)
-    calculated_raw: Optional[Dict[str, Any]] = Field(None, description="Raw Python calculation results for debugging.")
+    calculated_raw: Optional[Mapping[str, float]] = Field(None, description="Raw Python calculation results for debugging.")
+
+    class Config:
+        extra = "forbid"

@@ -1,7 +1,6 @@
 import os
 import logging
-from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_chroma import Chroma
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from dotenv import load_dotenv
 
@@ -54,7 +53,11 @@ def clinical_rag_node(state: AgentState):
     risk_score = state.get("risk_score_report", "Risk Score not calculated")
     
     # 2. LLM Configuration (Query Generator)
-    llm = ChatOllama(model="llama3.1", temperature=0, seed=42)
+    llm = ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0,
+        seed=42
+    )
 
     # 3. Prompt Hardcoded (The "Constitution" of RAG)
     user_message = f"""
