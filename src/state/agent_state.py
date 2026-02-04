@@ -1,6 +1,6 @@
 
 from typing import List, Any, TypedDict, Optional
-from src.schemas.scribe_schema import RawScribeLLM
+from src.schemas.scribe_schema import ClinicalSchema
 from src.schemas.input_schema import InputSchema
 
 
@@ -30,7 +30,7 @@ class AgentState(TypedDict, total=False):
     """
  
     input: Optional[InputSchema]              # Raw triage input
-    extracted_data: Optional[RawScribeLLM] # Validated JSON (VitalSigns)
+    extracted_data: Optional[ClinicalSchema] # Validated JSON (VitalSigns)
     validation_errors: List[Optional[str]]   # Pydantic error message (if any)
     validation_messages: List[Any]
     attempts: int

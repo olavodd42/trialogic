@@ -5,10 +5,6 @@ from src.schemas.scribe_schema import VitalsSchema
 
 logger = logging.getLogger(__name__)
 
-# --- TECH LEAD NOTE ---
-# Alteramos o ScoreBreakdown para permitir total_score=None.
-# Isso reflete o estado "INSUFFICIENT_DATA" academicamente correto.
-
 class ScoreBreakdown(BaseModel):
     """
     Schema representing the detailed result of a clinical score calculation.

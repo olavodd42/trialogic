@@ -70,11 +70,19 @@ class VitalsSchema(BaseModel):
     sbp: Optional[int] = None
     dbp: Optional[int] = None
     avpu: Optional[str] = None
-    acvpu: Optional[TypeACVPU] = None
+    acvpu: TypeACVPU = "Alert"
     supplemental_oxygen: bool = Field(default=False)
-    # acuity removido
 
-class RawVitalsLLM(BaseModel):
+class ClinicalSchema(BaseModel):
+    chief_complaint: str = Field(..., description="Main reason for admission (brief)")
+    vitals: VitalsSchema
+
+class RawScribeOutput(BaseModel):
+    chief_complaint: str = Field(
+        ..., 
+        description="The main reason for the patient's visit or emergency. Be concise."
+    )
+    
     reasoning: str = Field(
         ..., 
         description="Brief logic: Where are the vitals located?"
@@ -98,7 +106,7 @@ class RawVitalsLLM(BaseModel):
     dbp: Optional[int] = Field(None, description="Diastolic BP")
     
     supplemental_oxygen: bool = Field(False, description="True if 'NC','mask','L/min' etc.")
-    acvpu: TypeACVPU = Field(..., description="Mental status: Alert, Confusion, Voice, Pain, Unresponsive")
+    acvpu: TypeACVPU = Field("Alert", description="Mental status: Alert, Confusion, Voice, Pain, Unresponsive")
     _used_numeric_values: set[float] = PrivateAttr(default_factory=set)
     _assigned_indices: set[int] = PrivateAttr(default_factory=set)
 
@@ -549,6 +557,32 @@ class RawVitalsLLM(BaseModel):
 
 
         return self
+    
+    def _map_avpu(self, raw_acvpu: str) -> str:
+        """
+        Maps the raw ACVPU (Alert, Confusion, Voice, Pain, Unresponsive) scale to the standard AVPU scale.
+        
+        Business Logic:
+        - 'Confusion' is mapped to 'Alert' (as per some triage protocols where confusion is a status of an alert patient, though this can be customized).
+        - 'Alert', 'Voice', 'Pain', 'Unresponsive' map to themselves.
+
+        Args:
+            raw_acvpu (str): The raw mental status string extracted by the LLM.
+
+        Returns:
+            str: The normalized AVPU status. Defaults to 'Alert' if input is empty or unknown.
+        """
+        if not raw_acvpu:
+            return "Alert"
+            
+        mapping = {
+            "Confusion": "Alert",
+            "Alert": "Alert",
+            "Voice": "Voice",
+            "Pain": "Pain",
+            "Unresponsive": "Unresponsive"
+        }
+        return mapping.get(raw_acvpu, "Alert") # Default fallback
 
     @model_validator(mode='after')
     def clinical_sanity_check(self):
@@ -595,33 +629,24 @@ class RawVitalsLLM(BaseModel):
                 self.temperature = None
 
         return self
-    
 
-    
-class RawScribeLLM(BaseModel):
-    chief_complaint: Optional[str]
-    vitals: RawVitalsLLM
-
-    @model_validator(mode="after")
-    def validate_clinical_consistency(self):
-        logger.debug("Validating Clinical Schema consistency...")
-        if not self.chief_complaint or not self.vitals.acvpu:
-            return self
-
-        cc_lower = self.chief_complaint.lower()
-        acvpu_val = self.vitals.acvpu
-
-        # Regra: Se a queixa é CONFUSÃO, o ACVPU deveria idealmente refletir isso ou ser investigado.
-        # "Confusion" no ACVPU é um estado específico.
-        if "confusion" in cc_lower or "confused" in cc_lower or "disoriented" in cc_lower:
-            if acvpu_val == "Alert":
-                logger.warning(
-                    f"CLINICAL MISMATCH WARNING: Chief Complaint indicates '{self.chief_complaint}', "
-                    f"but ACVPU is '{acvpu_val}'. Verify if patient is Alert but Disoriented."
-                )
-        
-        return self
-    
-class ClinicalSchema(BaseModel):
-    chief_complaint: str = Field(..., description="Main reason for admission (brief)")
-    vitals: VitalsSchema
+    def to_domain(self) -> ClinicalSchema:
+        """
+        Mapper Method: Converte o DTO plano para o modelo hierárquico rico.
+        Isso isola a 'sujeira' da extração da 'limpeza' do domínio.
+        """
+        avpu = self._map_avpu(self.acvpu)
+        return ClinicalSchema(
+            chief_complaint=self.chief_complaint,
+            vitals=VitalsSchema(
+                heartrate=self.heartrate,
+                sbp=self.sbp,
+                dbp=self.dbp,
+                resprate=self.resprate,
+                temperature=self.temperature,
+                o2sat=self.o2sat,
+                supplemental_oxygen=self.supplemental_oxygen,
+                avpu=avpu,
+                acvpu=self.acvpu
+            )
+        )

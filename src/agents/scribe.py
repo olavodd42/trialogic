@@ -7,7 +7,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import ValidationError
 
-from src.schemas.scribe_schema import RawScribeLLM, VitalsSchema, ClinicalSchema
+from src.schemas.scribe_schema import RawScribeOutput, VitalsSchema, ClinicalSchema
 from src.state.agent_state import AgentState
 from src.utils.vitals_normalizer import normalize_temperature
 from src.utils.run_with_timeout import run_with_timeout
@@ -39,7 +39,7 @@ class ScribeAgent:
         self.model = model
         self.system_prompt = self._load_prompt(prompt_path)
         logger.debug(f"Prompt loaded: {self.system_prompt[:120].replace('\n',' ')} ...")
-        self.structured_model = self.model.with_structured_output(RawScribeLLM)
+        self.structured_model = self.model.with_structured_output(RawScribeOutput)
 
     def _load_prompt(self, path: str) -> str:
         """
@@ -61,32 +61,6 @@ class ScribeAgent:
         except FileNotFoundError:
             logger.error(f"CRITICAL: Prompt file not found at {path}")
             raise RuntimeError(f"Scribe system prompt missing: {path}")
-
-    def _map_avpu(self, raw_acvpu: str) -> str:
-        """
-        Maps the raw ACVPU (Alert, Confusion, Voice, Pain, Unresponsive) scale to the standard AVPU scale.
-        
-        Business Logic:
-        - 'Confusion' is mapped to 'Alert' (as per some triage protocols where confusion is a status of an alert patient, though this can be customized).
-        - 'Alert', 'Voice', 'Pain', 'Unresponsive' map to themselves.
-
-        Args:
-            raw_acvpu (str): The raw mental status string extracted by the LLM.
-
-        Returns:
-            str: The normalized AVPU status. Defaults to 'Alert' if input is empty or unknown.
-        """
-        if not raw_acvpu:
-            return "Alert"
-            
-        mapping = {
-            "Confusion": "Alert",
-            "Alert": "Alert",
-            "Voice": "Voice",
-            "Pain": "Pain",
-            "Unresponsive": "Unresponsive"
-        }
-        return mapping.get(raw_acvpu, "Alert") # Default fallback
 
     def process(self, state: AgentState) -> Dict[str, Any]:
         """
@@ -151,10 +125,10 @@ class ScribeAgent:
             logger.info("✍--- NODE: SCRIBE ---")
             logger.debug("Extracting data from clinical note...")
             raw_response = run_with_timeout(self.structured_model.invoke, messages, timeout=60, retries=3)
-            response: RawScribeLLM = cast(RawScribeLLM, raw_response)
+            response: RawScribeOutput = cast(RawScribeOutput, raw_response)
             logger.debug(f"Raw LLM response: {response}")
-            vitals = response.vitals
-            if vitals.span_format == "NOT_FOUND":
+
+            if response.span_format == "NOT_FOUND":
                 if re.search(r'(?i)\b(VITALS?|BP \d{2,3}/\d{2,3})\b', clinical_text):
                     logger.warning("Vitals exist in text but span selection failed. Forcing retry.")
                     return {
@@ -162,50 +136,16 @@ class ScribeAgent:
                         "attempts": attempts + 1,
                         "validation_errors": ["Vitals exist but incorrect span selected."]
                     }
-            vital_span = vitals.vital_section_span or ""
+                
             
-            NEURO_ONLY_TERMS = [
-                "AVSS", "ALERT", "CONFUSED", "ORIENTED",
-                "PERRL", "EOMI", "FOLLOWS COMMANDS",
-                "MAE", "NO DRIFT"
-            ]
-
-            span_upper = vital_span.upper()
-
-            if not re.search(r"\d", vital_span) and any(t in span_upper for t in NEURO_ONLY_TERMS):
-                logger.warning("Neuro-only span selected. Rejecting and forcing retry.")
-                return {
-                    "error": "Neuro-only span selected instead of vitals.",
-                    "is_success": False,
-                    "attempts": state.get("attempts", 0) + 1,
-                    "validation_errors": ["Neuro-only span selected."]
-                }
             
             # 3. Maps ACVPU to AVPU
             logger.debug("Mapping ACVPU to AVPU...")
-            final_acvpu = vitals.acvpu
-            avpu_mapped = self._map_avpu(final_acvpu)
             
             # 4. Convert data to ClinicalSchema
             logger.debug("Converting to ClinicalSchema...")
-            domain_vitals = VitalsSchema(
-                heartrate=vitals.heartrate,
-                resprate=vitals.resprate,
-                temperature=normalize_temperature(vitals.temperature) if vitals.temperature else None, # O validator do Pydantic já deve ter normalizado
-                o2sat=vitals.o2sat,
-                sbp=vitals.sbp,
-                dbp=vitals.dbp,
-                avpu=avpu_mapped,
-                acvpu=final_acvpu,
-                supplemental_oxygen=vitals.supplemental_oxygen or False,
-                # acuity removido
-            )
-
-            clinical_output = ClinicalSchema(
-                chief_complaint=response.chief_complaint or "Not reported",
-                vitals=domain_vitals
-            )
-            # print(clinical_output)
+            clinical_output = response.to_domain()
+            domain_vitals = clinical_output.vitals
 
             logger.info(f"Extraction Successful. HR: {domain_vitals.heartrate}, BP: {domain_vitals.sbp}/{domain_vitals.dbp}, Temp: {domain_vitals.temperature}, O2Sat: {domain_vitals.o2sat}")
 

@@ -63,7 +63,9 @@ class MathematicianAgent:
         """
         logger.info("\n--- 🧮 NODE: MATHEMATICIAN ---")
         # 1. Retrieve vitals with fallback logic
+
         extracted_data = state.get("extracted_data")
+        logger.debug(f"INPUT: {extracted_data}")
         if not extracted_data:
             logger.warning("No extracted data found. Skipping calculation.")
             return {"risk_score": None}

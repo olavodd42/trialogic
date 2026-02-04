@@ -32,7 +32,8 @@ def main():
         return
     
     df = pd.read_csv(INPUT_CSV)
-    
+    # df = df.head(2)
+
     processed_ids = set()
     
     if os.path.exists(OUTPUT_FILE):

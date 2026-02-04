@@ -1,7 +1,7 @@
 from typing import List, Literal, Dict, Any, Optional
 from langchain_core.messages import HumanMessage
 from src.state.agent_state import AgentState
-from src.schemas.scribe_schema import RawScribeLLM
+from src.schemas.scribe_schema import ClinicalSchema
 import logging
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ def validator_node(state: AgentState) -> Dict[str, Any]:
     
     if isinstance(data, dict):
         try:
-            data = RawScribeLLM(**data)
+            data = ClinicalSchema(**data)
         except Exception as e:
             logger.error(f"❌Schema Validation Error: {e}")
             return {"validation_errors": [f"Schema Validation Error: {e}"]}
