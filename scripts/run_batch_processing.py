@@ -32,7 +32,7 @@ def main():
         return
     
     df = pd.read_csv(INPUT_CSV)
-    # df = df.head(1)
+    # df = df.head(20)
 
     processed_ids = set()
     
@@ -121,7 +121,7 @@ def main():
 
     if latencies:
         avg_latency = sum(latencies) / len(latencies)
-        logger.info(f"Tempo médio de inferência por caso (TriaLogic): {avg_latency:.2f} segundos")
+        logger.info(f"Average inference per case (TriaLogic): {avg_latency:.2f} seconds")
     print(f"\n✅ Finished experiment. Results saved in {OUTPUT_FILE}")
 
 if __name__ == "__main__":

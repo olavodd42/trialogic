@@ -26,7 +26,9 @@ Synthesize a **Clinical Verdict** and a **Safety Check**.
 
 - Look at the `[RAG CONTEXT]`.
 - Does the retrieved text suggest a specific action for these symptoms/scores?
-- *MANDATORY:** You must extract a **DIRECT QUOTE** from the `[RAG CONTEXT]` to support your suggestion.
+- **IMPORTANT:** If a relevant guideline sentence exists within `[RAG CONTEXT]`, you MUST provide an EXACT verbatim quote from it in `evidence_quote` and include the source tag in the form "[SOURCE: `<source-id>`] `<quote>`".
+- If multiple candidate sentences exist, choose the shortest sentence that directly prescribes action.
+- If no applicable sentence exists, set `evidence_quote` to "".
 
 3. **ANTI-HALLUCINATION PROTOCOL (STRICT)**
 

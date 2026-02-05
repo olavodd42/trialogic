@@ -2,6 +2,8 @@ import os
 import logging
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.documents import Document
+
 from dotenv import load_dotenv
 
 from src.state.agent_state import AgentState
@@ -26,6 +28,21 @@ try:
 except FileNotFoundError:
     logger.error(f"CRITICAL: Prompt file not found at {path}")
     raise RuntimeError(f"Scribe system prompt missing: {path}") 
+
+GUIDELINE_KEYWORDS = [
+    "recommend", "should", "must", "indicated",
+    "management", "treatment", "protocol",
+    "guideline", "assessment", "ct scan"
+]
+
+
+def is_actionable_guideline(docs: list[Document]) -> bool:
+    for d in docs:
+        text = d.page_content.lower()
+        hits = sum(1 for k in GUIDELINE_KEYWORDS if k in text)
+        if hits >= 2:
+            return True
+    return False
 
 def clinical_rag_node(state: AgentState) -> AgentState:
     """
@@ -87,8 +104,12 @@ def clinical_rag_node(state: AgentState) -> AgentState:
         logger.debug("Accessing VectorStore...")
         vectorstore = get_vectorstore()
         docs = vectorstore.similarity_search(search_query, k=3)
+        if docs and is_actionable_guideline(docs):
+            rag_context_used = True
+        else:
+            rag_context_used = False
         
-        if docs:
+        if rag_context_used:
             formatted_docs = []
             for d in docs:
                 source = d.metadata.get('source', 'Guideline')
@@ -102,6 +123,7 @@ def clinical_rag_node(state: AgentState) -> AgentState:
             retrieved_context = "No specific guidelines found for this query."
 
     except Exception as e:
+        rag_context_used = False
         logger.error(f"❌ RAG System Failed: {e}")
         retrieved_context = "CRITICAL: RAG System Offline. Proceed with standard clinical judgment."
 
@@ -109,5 +131,5 @@ def clinical_rag_node(state: AgentState) -> AgentState:
         # "extracted_vitals": vitals,
         "search_query": search_query,
         "rag_context": retrieved_context,
-        "rag_context_used": True if retrieved_context else False
+        "rag_context_used": rag_context_used
     }

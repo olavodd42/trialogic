@@ -92,7 +92,7 @@ def create_workflow():
         {
             "scribe": "scribe",
             "mathematician": "mathematician",
-            "clinical_rag": "synthesizer",
+            "clinical_rag": "clinical_rag",
             "end": END
         }
     )
@@ -114,7 +114,7 @@ def create_workflow():
         {
             "scribe": "scribe",
             "mathematician": "mathematician",
-            "clinical_rag": "synthesizer",
+            "clinical_rag": "clinical_rag",
             "end": END
         }
     )
@@ -124,13 +124,13 @@ def create_workflow():
         "mathematician",
         supervisor_router,
         {
-            "clinical_rag": "synthesizer",
+            "clinical_rag": "clinical_rag",
             "end": END,
-            "auditor": "synthesizer"} 
+            "auditor": "clinical_rag"} 
     )
 
     # Clinical RAG (Retrieval) -> Synthesizer (Audit) -> Supervisor Flow
-    # workflow.add_edge("clinical_rag", "synthesizer")
+    workflow.add_edge("clinical_rag", "synthesizer")
     workflow.add_edge("synthesizer", END)
 
     compiled = workflow.compile()
