@@ -56,21 +56,23 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
 
     extracted_data = state.get("extracted_data")
     risk_report = state.get("risk_score_report")
-    rag_context = state.get("rag_context")
-    rag_context_used = bool(rag_context)
+    rag_context = state.get("rag_context", "")
+    rag_context_used = state.get("rag_context_used", False)
+
+    logger.debug(f"STATE: {state}")
+    # logger.debug(f"RAG_CONTEXT LEN: {len(rag_context) if rag_context else 0}")
+    # logger.debug(f"RAG_CONTEXT PREVIEW:\n{rag_context[:500]}")
 
     # 1. Describe o contexto condicionalmente
     if True:
-        
-        full_context_content = f"""
-        === STATIC PROTOCOL DEFINITIONS ===
-        {STATIC_RULES}
+        full_context_content = ""
+        # full_context_content = f"""
+        # === STATIC PROTOCOL DEFINITIONS ===
+        # {STATIC_RULES}
 
-        === RETRIEVED CLINICAL GUIDELINES ===
-        {rag_context}
-        """
-        # === RETRIEVED GUIDELINES ===
+        # === RETRIEVED CLINICAL GUIDELINES ===
         # {rag_context}
+        # """
     else:
         full_context_content = ""
     

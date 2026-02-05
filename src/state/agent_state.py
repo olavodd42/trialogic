@@ -36,8 +36,7 @@ class AgentState(TypedDict, total=False):
     attempts: int
     risk_score_report: Optional[str]  # Risk score results
     search_query: Optional[str]
-    context_category: Optional[str]
-    context_text: Optional[str]
+    rag_context: Optional[str]
     auditor_report: Optional[Any]     # Final audit report (dict or error msg)
     rag_context_used: bool
     

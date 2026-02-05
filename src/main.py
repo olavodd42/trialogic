@@ -43,8 +43,7 @@ def create_workflow():
     llm = ChatOpenAI(
         model="gpt-4o-mini",
         temperature=0,
-        seed=42,
-        timeout=60
+        seed=42
     )
     scribe_agent = ScribeAgent(model=llm)
     mathematician_agent = MathematicianAgent(model=llm)
@@ -93,7 +92,7 @@ def create_workflow():
         {
             "scribe": "scribe",
             "mathematician": "mathematician",
-            "clinical_rag": "clinical_rag",
+            "clinical_rag": "synthesizer",
             "end": END
         }
     )
@@ -115,7 +114,7 @@ def create_workflow():
         {
             "scribe": "scribe",
             "mathematician": "mathematician",
-            "clinical_rag": "clinical_rag",
+            "clinical_rag": "synthesizer",
             "end": END
         }
     )
@@ -127,11 +126,11 @@ def create_workflow():
         {
             "clinical_rag": "synthesizer",
             "end": END,
-            "auditor": "clinical_rag"} 
+            "auditor": "synthesizer"} 
     )
 
     # Clinical RAG (Retrieval) -> Synthesizer (Audit) -> Supervisor Flow
-    workflow.add_edge("clinical_rag", "synthesizer")
+    # workflow.add_edge("clinical_rag", "synthesizer")
     workflow.add_edge("synthesizer", END)
 
     compiled = workflow.compile()

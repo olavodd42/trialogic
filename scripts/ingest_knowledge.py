@@ -26,11 +26,23 @@ def main():
         category="sepsis",
         source_type="guideline"
     )
-    
+
     ingest_document(
-        filepath=os.path.join(docs_folder, "NEWS2_Chart.pdf"),
-        category="triage",
-        source_type="scoring_system"
+        filepath=os.path.join(docs_folder, "Cardio.pdf"),
+        category="chest pain",
+        source_type="guideline"
+    )
+
+    # ingest_document(
+    #     filepath=os.path.join(docs_folder, "ChestPain.pdf"),
+    #     category="chest pain",
+    #     source_type="guideline"
+    # )
+
+    ingest_document(
+        filepath=os.path.join(docs_folder, "Trauma.pdf"),
+        category="trauma",
+        source_type="guideline"
     )
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ except FileNotFoundError:
     logger.error(f"CRITICAL: Prompt file not found at {path}")
     raise RuntimeError(f"Scribe system prompt missing: {path}") 
 
-def clinical_rag_node(state: AgentState):
+def clinical_rag_node(state: AgentState) -> AgentState:
     """
     Executes the Clinical RAG (Retrieval-Augmented Generation) node to fetch relevant clinical guidelines.
 
@@ -108,5 +108,6 @@ def clinical_rag_node(state: AgentState):
     return {
         # "extracted_vitals": vitals,
         "search_query": search_query,
-        "rag_context": retrieved_context
+        "rag_context": retrieved_context,
+        "rag_context_used": True if retrieved_context else False
     }

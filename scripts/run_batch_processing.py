@@ -21,7 +21,7 @@ SEED = 42
 
 # Caminhos
 INPUT_CSV = os.path.join(os.getcwd(), "data/gold_standard_dataset.csv") # O dataset filtrado que criamos antes
-OUTPUT_FILE = os.path.join(os.getcwd(), "results/xperiment_results_v1.jsonl")
+OUTPUT_FILE = os.path.join(os.getcwd(), "results/experiment_results_v1.jsonl")
 
 app = create_workflow()
 
@@ -32,7 +32,7 @@ def main():
         return
     
     df = pd.read_csv(INPUT_CSV)
-    # df = df.head(2)
+    # df = df.head(1)
 
     processed_ids = set()
     

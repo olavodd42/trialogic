@@ -71,6 +71,7 @@ class VitalsSchema(BaseModel):
     dbp: Optional[int] = None
     avpu: Optional[str] = None
     acvpu: TypeACVPU = "Alert"
+    gcs: Optional[int] = None
     supplemental_oxygen: bool = Field(default=False)
 
 class ClinicalSchema(BaseModel):
@@ -107,6 +108,7 @@ class RawScribeOutput(BaseModel):
     
     supplemental_oxygen: bool = Field(False, description="True if 'NC','mask','L/min' etc.")
     acvpu: TypeACVPU = Field("Alert", description="Mental status: Alert, Confusion, Voice, Pain, Unresponsive")
+    gcs: Optional[int] = Field(None, description="Glasgow Coma Scale")
     _used_numeric_values: set[float] = PrivateAttr(default_factory=set)
     _assigned_indices: set[int] = PrivateAttr(default_factory=set)
 
@@ -647,6 +649,7 @@ class RawScribeOutput(BaseModel):
                 o2sat=self.o2sat,
                 supplemental_oxygen=self.supplemental_oxygen,
                 avpu=avpu,
-                acvpu=self.acvpu
+                acvpu=self.acvpu,
+                gcs=self.gcs
             )
         )
