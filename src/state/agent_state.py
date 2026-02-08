@@ -31,7 +31,7 @@ class AgentState(TypedDict, total=False):
  
     input: Optional[InputSchema]              # Raw triage input
     extracted_data: Optional[ClinicalSchema] # Validated JSON (VitalSigns)
-    validation_errors: List[Optional[str]]   # Pydantic error message (if any)
+    validation_errors: List[Optional[str]]  
     validation_messages: List[Any]
     attempts: int
     risk_score_report: Optional[str]  # Risk score results

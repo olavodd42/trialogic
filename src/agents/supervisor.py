@@ -27,18 +27,13 @@ def supervisor_router(state: AgentState) -> Literal["scribe", "mathematician", "
     Supervisor Router: Determines the next step in the workflow based on the state.
 
     Logic:
-    1. If no extracted data, go to 'scribe'.
-    2. If extraction has errors (and attempts < max), retry 'scribe'.
-    3. If extracted data exists but no risk score, go to 'mathematician'.
-    4. If risk score exists but no audit, go to 'auditor'.
-    5. If all done, 'end'.
-
-    Args:
-        state (AgentState): Current state.
-
-    Returns:
-        str: The name of the next node to execute.
+    1. If no extracted data, route to 'scribe'.
+    2. If validation errors exist and attempts < max, retry 'scribe'.
+    3. If structured data exists but no risk score, route to 'mathematician'.
+    4. If risk scores exist but no contextual grounding, route to 'clinical_rag'.
+    5. If all steps are complete, terminate execution.
     """
+    
     extracted = state.get("extracted_data")
     risk = state.get("risk_score_report")
     audit = state.get("auditor_report")
