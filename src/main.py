@@ -46,7 +46,7 @@ def create_workflow():
         seed=42
     )
     scribe_agent = ScribeAgent(model=llm)
-    mathematician_agent = MathematicianAgent(model=llm)
+    mathematician_agent = MathematicianAgent(model=llm, use_probabilistic=True)
 
     # --- GRAPH ---
     workflow = StateGraph(AgentState)

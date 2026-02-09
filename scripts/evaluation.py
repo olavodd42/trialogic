@@ -40,8 +40,19 @@ SCORE_EXTREME_DIFF_THRESHOLD = 5
 RELATIVE_ERROR_THRESHOLD = 2.0
 CONST_VALUE_SUSPECT_STD = 0.01
 
-NEWS_PATTERN = re.compile(r"SCORE TOTAL NEWS:?\s*(\d+)", re.IGNORECASE)
-MEWS_PATTERN = re.compile(r"SCORE TOTAL MEWS:?\s*(\d+)", re.IGNORECASE)
+NEWS_PATTERNS = [
+    re.compile(r"SCORE TOTAL NEWS:?\s*(\d+)", re.IGNORECASE),
+    re.compile(r"NEWS[^0-9]{0,10}score\s*[:=]?\s*(\d+)", re.IGNORECASE),
+    re.compile(r"NEWS\s*score\s*[:=]?\s*(\d+)", re.IGNORECASE),
+    re.compile(r"NEWS\s*[:\-]?\s*(\d+)", re.IGNORECASE),
+]
+
+MEWS_PATTERNS = [
+    re.compile(r"SCORE TOTAL MEWS:?\s*(\d+)", re.IGNORECASE),
+    re.compile(r"MEWS[^0-9]{0,10}score\s*[:=]?\s*(\d+)", re.IGNORECASE),
+    re.compile(r"MEWS\s*score\s*[:=]?\s*(\d+)", re.IGNORECASE),
+    re.compile(r"MEWS\s*[:\-]?\s*(\d+)", re.IGNORECASE),
+]
 
 # Alternate candidate names for GT columns (makes matching robust)
 GT_CANDIDATES = {
@@ -74,14 +85,15 @@ def normalize_value(v):
             return np.nan
     return np.nan
 
-def extract_score_from_text(text, pattern):
+def extract_score_from_text(text, patterns: List[re.Pattern]):
     if not isinstance(text, str): return np.nan
-    match = pattern.search(text)
-    if match:
-        try:
-            return int(match.group(1))
-        except:
-            return np.nan
+    for pattern in patterns:
+        match = pattern.search(text)
+        if match:
+            try:
+                return int(match.group(1))
+            except:
+                continue
     fallback = re.search(r"SCORE TOTAL\s*(?:NEWS|MEWS)[:\s]*([0-9]{1,2})", text, re.IGNORECASE)
     if fallback:
         return int(fallback.group(1))
@@ -169,8 +181,8 @@ def normalize_prediction(item: Dict[str,Any]) -> Dict[str,Any]:
         'Pred_RR': normalize_value(vitals.get('resprate') or vitals.get('rr') or vitals.get('resp_rate')),
         'Pred_O2': normalize_value(vitals.get('o2sat') or vitals.get('spo2')),
         'Pred_Temp': normalize_value(vitals.get('temperature') or vitals.get('temperature_celsius')),
-        'Pred_NEWS': extract_score_from_text(risk_text, NEWS_PATTERN),
-        'Pred_MEWS': extract_score_from_text(risk_text, MEWS_PATTERN),
+        'Pred_NEWS': extract_score_from_text(risk_text, NEWS_PATTERNS),
+        'Pred_MEWS': extract_score_from_text(risk_text, MEWS_PATTERNS),
         'rag_context_used': rag_flag
     }
 
@@ -767,7 +779,9 @@ def export_pretty_tables(metrics_df: pd.DataFrame, merged_results: Dict[str,pd.D
             'Baseline (Zero-Shot)': 'B0',
             'Baseline (One-Shot)': 'B1',
             'No RAG': 'NR',
-            'TriaLogic (Agents)': 'TA'
+            'TriaLogic (Agents)': 'TA',
+            'TriaLogic (No Validator)': 'TNV',
+            'TriaLogic (Probabilistic)': 'TP'
         }
         def _shorten(col):
             for long, short in short_map.items():
@@ -873,7 +887,9 @@ if __name__ == "__main__":
         "Baseline (Zero-Shot)": os.path.join(BASE_DIR, "results", "baseline_results.jsonl"),
         "Baseline (One-Shot)": os.path.join(BASE_DIR, "results", "oneshot_baseline_results.jsonl"),
         "No RAG": os.path.join(BASE_DIR, "results", "norag_experiment_results_v1.jsonl"),
-        "TriaLogic (Agents)": os.path.join(BASE_DIR, "results", "experiment_results_v1.jsonl")
+        "TriaLogic (Agents)": os.path.join(BASE_DIR, "results", "experiment_results_v1.jsonl"),
+        "TriaLogic (No Validator)": os.path.join(BASE_DIR, "results", "novalidator_experiment_results_v1.jsonl"),
+        "TriaLogic (Probabilistic)": os.path.join(BASE_DIR, "results", "probabilistic_experiment_results_v1.jsonl"),
     }
 
     if not os.path.exists(GT_PATH):

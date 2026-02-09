@@ -38,42 +38,8 @@ except FileNotFoundError:
 
 
 class MathematicianAgent:
-    def __init__(self, model, use_probabilistic: bool = False):
-        # Structured model for final analysis
+    def __init__(self, model):
         self.model = model.with_structured_output(MathematicianSchema)
-        # Raw model (no structured) for optional probabilistic calc
-        self.raw_model = model
-        env_flag = os.getenv("MATHEMATICIAN_PROBABILISTIC", "").lower() in ("1", "true", "yes")
-        self.use_probabilistic = use_probabilistic or env_flag
-
-    def _calc_scores_with_llm(self, vitals_dict: dict) -> Dict[str, Any]:
-        """Probabilistic LLM path for calculating NEWS/MEWS (for comparison)."""
-        json_schema = """
-        {
-            "NEWS": {"score": <number|null>, "risk_level": "Low|Medium|High|Critical|Unknown", "missing_fields": [], "assumptions": []},
-            "MEWS": {"score": <number|null>, "risk_level": "Low|Medium|High|Critical|Unknown", "missing_fields": [], "assumptions": []}
-        }
-        """
-
-        prompt = f"""
-        You are a deterministic clinical calculator. Compute NEWS2 and MEWS given vitals.
-        Follow official scoring tables; do not invent vitals. If data is missing, set score to null
-        and list missing_fields plus any assumptions you made (e.g., assumed room air = False).
-
-        Return STRICT JSON:
-        {json_schema}
-
-        VITALS: {json.dumps(vitals_dict, default=str)}
-        """
-        try:
-            resp = self.raw_model.invoke([SystemMessage(content="You are a precise clinical scoring calculator."),
-                                          HumanMessage(content=prompt)])
-            content = resp.content if hasattr(resp, "content") else str(resp)
-            data = json.loads(content)
-            return data if isinstance(data, dict) else {}
-        except Exception as e:
-            logger.warning(f"LLM scoring fallback to deterministic due to parse error: {e}")
-            return {}
 
     def process(self, state: AgentState) -> Dict[str, Any]:
         """
@@ -113,59 +79,30 @@ class MathematicianAgent:
             vitals = {}
 
         # Normalize vitals to dictionary for tool consumption
-        vitals_obj: Any = vitals
-        if hasattr(vitals_obj, "model_dump"):
-            vitals_dict = vitals_obj.model_dump()
-        elif hasattr(vitals_obj, "dict"):
-            vitals_dict = vitals_obj.dict()
-        elif isinstance(vitals_obj, dict):
-            vitals_dict = vitals_obj
+        if hasattr(vitals, "model_dump"):
+            vitals_dict = vitals.model_dump()
+        elif hasattr(vitals, "dict"):
+            vitals_dict = vitals.dict()
+        elif isinstance(vitals, dict):
+            vitals_dict = vitals
         else:
             vitals_dict = {}
 
         try:
-            # 2. Calculation (deterministic or probabilistic LLM)
-            raw_scores = {}
-            if self.use_probabilistic:
-                results = self._calc_scores_with_llm(vitals_dict)
-                simple_report = ""
-                for score_name in ["NEWS", "MEWS"]:
-                    entry = results.get(score_name, {}) if isinstance(results, dict) else {}
-                    sc = entry.get("score")
-                    risk = entry.get("risk_level", "Unknown")
-                    missing = entry.get("missing_fields", [])
-                    assumptions = entry.get("assumptions", [])
-                    simple_report += f"{score_name}: score={sc}, risk={risk}, missing={missing}, assumptions={assumptions}\n"
-                    if sc is not None:
-                        try:
-                            raw_scores[score_name] = float(sc)
-                        except Exception:
-                            raw_scores[score_name] = sc
-            else:
-                results = {}
-                simple_report = ""
-                for score in ["NEWS", "MEWS"]:
-                    try:
-                        logger.debug("Calculating scores via tool...")
-                        res_text = calculate_clinical_score(vitals_dict, score)
-                        results[score] = res_text
-                        simple_report += f"{score}: {res_text}\n"
-                        # best-effort numeric extraction
-                        try:
-                            prefix = f"SCORE TOTAL {score}: "
-                            if prefix in res_text:
-                                num_part = res_text.split(prefix,1)[1].split("\n",1)[0]
-                                raw_scores[score] = float(num_part.strip())
-                        except Exception:
-                            pass
-                        logger.info(f"🧮 {score} Score Calculated: {results[score]}")
-                    except Exception as e:
-                        logger.error(f"Calculation Error {score}: {e}")
-                        results[score] = f"Error calculating {score}: {str(e)}"
+            # 2. Deterministic Execution (Tool Usage by direct Python)
+            results = {}
+            for score in ["NEWS", "MEWS"]:
+                try:
+                    logger.debug("Calculating scores via tool...")
+                    results[score] = calculate_clinical_score(vitals_dict, score)
+                    logger.info(f"🧮 {score} Score Calculated: {results[score]}")
+                except Exception as e:
+                    logger.error(f"Calculation Error {score}: {e}")
+                    results[score] = f"Error calculating {score}: {str(e)}"
 
             # 3. Model Invocation for Interpretation (NLU)
             vitals_json = json.dumps(vitals_dict, default=str)
-            calc_payload = results if self.use_probabilistic else json.dumps(results, indent=2)
+
             context_msg = f"""
             [PRE-CALCULATED SCORES]
             Analyze the following calculation outputs carefully. Note any [ESTIMATED] tags.
@@ -173,7 +110,7 @@ class MathematicianAgent:
             Input Vitals: {vitals_json}
             
             Calculation Output:
-            {calc_payload}
+            {json.dumps(results, indent=2)}
             
             [TASK]
             Analyze the calculated scores above.
@@ -198,7 +135,10 @@ class MathematicianAgent:
             else:
                 result_data = response
                 
-            result_data["calculated_raw"] = raw_scores or results
+            result_data["calculated_raw"] = results
+            simple_report = ""
+            for score_name, text in results.items():
+                simple_report += f"{score_name}: {text}\n"
 
             logging.info(f"✅ Mathematician Complete: {simple_report}")
             
