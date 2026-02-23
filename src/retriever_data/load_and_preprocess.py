@@ -61,11 +61,10 @@ def ingest_document(filepath: str, category: str, source_type: str):
     splits = text_splitter.split_documents(docs)
 
     # 5. Embeddings Configuration
-    # Using BioLinkBERT with sentence-transformers via HuggingFaceEmbeddings
-    from langchain_openai import OpenAIEmbeddings
-    import os
-    embedding_function = OpenAIEmbeddings(
-        model="text-embedding-3-small"
+    # Using sentence-transformers locally (compatible with LLaMA ecosystem)
+    from langchain_huggingface import HuggingFaceEmbeddings
+    embedding_function = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
 
     # 6. Indexing on ChromaDB

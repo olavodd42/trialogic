@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Literal
 
 class AuditorOutput(BaseModel):    
@@ -14,10 +14,29 @@ class AuditorOutput(BaseModel):
         description="Exact name of the protocol used as base (ex: NEWS2, Sepsis-3, Manchester)."
     )
     
-    clinical_risk_category: Literal['Low Risk', 'Medium Risk / Monitor', 'High Risk / Emergency', 'Critical / Resuscitation'] = Field(
+    clinical_risk_category: str = Field(
         ...,
-        description="Standardized risk category based on computed score and clinical context."
+        description="Standardized risk category: 'Low Risk', 'Medium Risk / Monitor', 'High Risk / Emergency', or 'Critical / Resuscitation'."
     )
+
+    @field_validator("clinical_risk_category")
+    @classmethod
+    def normalize_risk_category(cls, v: str) -> str:
+        """Normalize risk category to canonical values, tolerating LLM output variations."""
+        mapping = {
+            "low": "Low Risk",
+            "medium": "Medium Risk / Monitor",
+            "monitor": "Medium Risk / Monitor",
+            "high": "High Risk / Emergency",
+            "emergency": "High Risk / Emergency",
+            "critical": "Critical / Resuscitation",
+            "resuscitation": "Critical / Resuscitation",
+        }
+        v_lower = v.strip().lower()
+        for key, canonical in mapping.items():
+            if key in v_lower:
+                return canonical
+        return v
     
     calculated_score_audit: str = Field(
         ...,

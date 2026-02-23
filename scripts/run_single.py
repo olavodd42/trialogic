@@ -1,3 +1,4 @@
+import argparse
 from src.main import create_workflow
 from src.schemas.input_schema import InputSchema
 import logging
@@ -15,8 +16,18 @@ Alert but lethargic.
 """
 
 def test_rag_integration():
+    parser = argparse.ArgumentParser(description="TriaLogic Single Case Runner")
+    parser.add_argument("--no-validator", action="store_true", help="Disable Validator node.")
+    parser.add_argument("--no-rag", action="store_true", help="Disable Clinical RAG and Synthesizer.")
+    parser.add_argument("--probabilistic", action="store_true", help="Use LLM-based probabilistic Mathematician.")
+    args = parser.parse_args()
+
     print("🚀 INICIANDO TESTE UNITÁRIO DO PIPELINE...")
-    app = create_workflow()
+    app = create_workflow(
+        use_validator=not args.no_validator,
+        use_rag=not args.no_rag,
+        use_probabilistic=args.probabilistic,
+    )
     
     input_data = InputSchema(
         subject_id=1,

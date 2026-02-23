@@ -42,4 +42,4 @@ class MathematicianSchema(BaseModel):
     calculated_raw: Optional[Mapping[str, float]] = Field(None, description="Raw Python calculation results for debugging.")
 
     class Config:
-        extra = "forbid"
+        extra = "ignore"

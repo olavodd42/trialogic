@@ -13,28 +13,22 @@ df = pd.read_csv(
     on_bad_lines='skip'  # pandas >=1.3.0
 )
 
-# 2. Define Keywords for bins (Simple Heuristics for Selection)
-sepsis_keywords = ["sepsis", "septic", "infection", "fever"]
-cardio_keywords = ["chest pain", "acs", "myocardial", "stemi", "troponin"]
-trauma_keywords = ["trauma", "fall", "fracture", "mva", "collision", "head injury"]
+# 2. Load Ground Truth and filter out already processed entries
+gt_path = os.path.join(os.getcwd(), "data/ground_truth.csv")
+df_gt = pd.read_csv(gt_path, encoding="utf-8-sig")
 
-def filter_cohort(df, keywords, n=50):
-    pattern = "|".join(keywords)
-    filtered = df[df["text"].str.lower().str.contains(pattern, na=False)]
-    sampled = filtered.sample(n=n, random_state=SEED)
-    sampled["cohort_type"] = keywords[0]
-    return sampled
+# Create a set of (subject_id, hadm_id) already in ground_truth
+existing_keys = set(zip(df_gt["subject_id"], df_gt["hadm_id"]))
+print(f"Entries already in ground_truth: {len(existing_keys)}")
 
-# 3. Generate the random samples
-df_sepsis = filter_cohort(df, sepsis_keywords, n=30)
-df_cardio = filter_cohort(df, cardio_keywords, n=30)
-df_trauma = filter_cohort(df, trauma_keywords, n=40)
+# Keep only rows NOT already in ground_truth
+df = df[~df.apply(lambda r: (r["subject_id"], r["hadm_id"]) in existing_keys, axis=1)]
+print(f"Remaining candidates after filtering: {len(df)}")
 
-# 4. Concatenate and save
-gold_dataset = pd.concat([df_sepsis, df_cardio, df_trauma], ignore_index=True)
-gold_dataset = gold_dataset.sample(frac=1.0, random_state=SEED).reset_index(drop=True)
+# 3. Save all remaining notes (not in ground_truth)
+gold_dataset = df.reset_index(drop=True)
 
-print(f"Validation Dataset created with {len(gold_dataset)} notes.")
+print(f"\nValidation Dataset created with {len(gold_dataset)} notes.")
 print(gold_dataset["cohort_type"].value_counts())
 
 gold_dataset.to_csv(os.path.join(os.getcwd(), "data/validation_notes.csv"), index=False)

@@ -1,7 +1,7 @@
 import concurrent.futures
 import time
 
-def run_with_timeout(fn, *args, timeout=60, retries=2, backoff=2, **kwargs):
+def run_with_timeout(fn, *args, timeout=180, retries=3, backoff=3, **kwargs):
     last_exc = None
     for attempt in range(retries + 1):
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:

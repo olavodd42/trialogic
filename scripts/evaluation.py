@@ -44,6 +44,7 @@ NEWS_PATTERNS = [
     re.compile(r"SCORE TOTAL NEWS:?\s*(\d+)", re.IGNORECASE),
     re.compile(r"NEWS[^0-9]{0,10}score\s*[:=]?\s*(\d+)", re.IGNORECASE),
     re.compile(r"NEWS\s*score\s*[:=]?\s*(\d+)", re.IGNORECASE),
+    re.compile(r"NEWS:\s*score=(\d+)", re.IGNORECASE),           # probabilistic format
     re.compile(r"NEWS\s*[:\-]?\s*(\d+)", re.IGNORECASE),
 ]
 
@@ -51,6 +52,7 @@ MEWS_PATTERNS = [
     re.compile(r"SCORE TOTAL MEWS:?\s*(\d+)", re.IGNORECASE),
     re.compile(r"MEWS[^0-9]{0,10}score\s*[:=]?\s*(\d+)", re.IGNORECASE),
     re.compile(r"MEWS\s*score\s*[:=]?\s*(\d+)", re.IGNORECASE),
+    re.compile(r"MEWS:\s*score=(\d+)", re.IGNORECASE),           # probabilistic format
     re.compile(r"MEWS\s*[:\-]?\s*(\d+)", re.IGNORECASE),
 ]
 
@@ -153,6 +155,41 @@ def load_json_or_jsonl(path: str) -> List[Dict[str,Any]]:
         return []
 
 # ----------------- normalize predictions -----------------
+def _extract_score_from_risk_analysis(item: Dict[str, Any], score_name: str) -> float:
+    """Try to extract a numeric score from risk_analysis.calculated_raw or risk_analysis.analyzed_scores."""
+    ra = item.get('risk_analysis')
+    if not isinstance(ra, dict):
+        return np.nan
+    # Try calculated_raw first (contains raw numeric scores)
+    calc_raw = ra.get('calculated_raw', {})
+    if isinstance(calc_raw, dict):
+        val = calc_raw.get(score_name)
+        if val is not None:
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                pass
+        # Also try nested dict with 'score' key (probabilistic format)
+        entry = calc_raw.get(score_name)
+        if isinstance(entry, dict):
+            sc = entry.get('score')
+            if sc is not None:
+                try:
+                    return float(sc)
+                except (ValueError, TypeError):
+                    pass
+    # Try analyzed_scores
+    analyzed = ra.get('analyzed_scores', {})
+    if isinstance(analyzed, dict):
+        val = analyzed.get(score_name) or analyzed.get(score_name.lower())
+        if val is not None:
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                pass
+    return np.nan
+
+
 def normalize_prediction(item: Dict[str,Any]) -> Dict[str,Any]:
     # flexible id keys
     hadm_id = item.get('hadm_id') or item.get('stay_id') or item.get('hadm') or item.get('id')
@@ -173,6 +210,16 @@ def normalize_prediction(item: Dict[str,Any]) -> Dict[str,Any]:
         rag_flag = rag_flag.lower() in ('true','1','yes')
     rag_flag = bool(rag_flag)
 
+    # Extract scores from risk_score text via regex
+    pred_news = extract_score_from_text(risk_text, NEWS_PATTERNS)
+    pred_mews = extract_score_from_text(risk_text, MEWS_PATTERNS)
+
+    # Fallback: try extracting from risk_analysis structured data (probabilistic format)
+    if pd.isna(pred_news):
+        pred_news = _extract_score_from_risk_analysis(item, 'NEWS')
+    if pd.isna(pred_mews):
+        pred_mews = _extract_score_from_risk_analysis(item, 'MEWS')
+
     return {
         'hadm_id': hadm_id,
         'Pred_SBP': normalize_value(vitals.get('sbp') or vitals.get('systolic') or vitals.get('systolic_bp')),
@@ -181,8 +228,8 @@ def normalize_prediction(item: Dict[str,Any]) -> Dict[str,Any]:
         'Pred_RR': normalize_value(vitals.get('resprate') or vitals.get('rr') or vitals.get('resp_rate')),
         'Pred_O2': normalize_value(vitals.get('o2sat') or vitals.get('spo2')),
         'Pred_Temp': normalize_value(vitals.get('temperature') or vitals.get('temperature_celsius')),
-        'Pred_NEWS': extract_score_from_text(risk_text, NEWS_PATTERNS),
-        'Pred_MEWS': extract_score_from_text(risk_text, MEWS_PATTERNS),
+        'Pred_NEWS': pred_news,
+        'Pred_MEWS': pred_mews,
         'rag_context_used': rag_flag
     }
 
@@ -190,17 +237,35 @@ def normalize_prediction(item: Dict[str,Any]) -> Dict[str,Any]:
 def load_and_sanitize_data(gt_csv_path: str, experiments_dict: Dict[str,str]) -> Dict[str,pd.DataFrame]:
     logger.info(f"Loading GT from: {gt_csv_path}")
     try:
-        df_gt = pd.read_csv(gt_csv_path, na_values=['N/A','NA','None','null',''])
+        # Auto-detect separator: try ';' first (common in pt-BR CSVs), fall back to ','
+        df_gt = pd.read_csv(gt_csv_path, sep=';', na_values=['N/A','NA','None','null',''], low_memory=False)
+        if len(df_gt.columns) <= 2:
+            # ';' didn't split properly — retry with ','
+            df_gt = pd.read_csv(gt_csv_path, sep=',', na_values=['N/A','NA','None','null',''], low_memory=False)
     except Exception as e:
         logger.error(f"Failed to read GT CSV: {e}")
         return {}
+
+    # Drop spurious 'Unnamed' columns (from trailing separators)
+    unnamed_cols = [c for c in df_gt.columns if c.startswith('Unnamed')]
+    if unnamed_cols:
+        df_gt = df_gt.drop(columns=unnamed_cols)
 
     id_col = 'hadm_id' if 'hadm_id' in df_gt.columns else ('stay_id' if 'stay_id' in df_gt.columns else None)
     if id_col is None:
         logger.error("Ground truth missing hadm_id/stay_id column.")
         return {}
 
+    # Drop rows where id is NaN (empty rows from large CSVs)
+    df_gt = df_gt.dropna(subset=[id_col])
     df_gt[id_col] = pd.to_numeric(df_gt[id_col], errors='coerce').fillna(0).astype(int)
+
+    # Drop duplicate hadm_ids (keep first occurrence)
+    before_dedup = len(df_gt)
+    df_gt = df_gt.drop_duplicates(subset=[id_col], keep='first')
+    if before_dedup != len(df_gt):
+        logger.info(f"Removed {before_dedup - len(df_gt)} duplicate {id_col} rows from GT (kept first).")
+
     df_gt = df_gt.set_index(id_col)
 
     # apply normalization to GT candidate columns if present
@@ -228,14 +293,19 @@ def load_and_sanitize_data(gt_csv_path: str, experiments_dict: Dict[str,str]) ->
         # rag summary
         rag_count = int(df_pred['rag_context_used'].sum()) if 'rag_context_used' in df_pred.columns else 0
         total_preds = len(df_pred)
+        # Score extraction diagnostics
+        news_extracted = int(df_pred['Pred_NEWS'].notna().sum()) if 'Pred_NEWS' in df_pred.columns else 0
+        mews_extracted = int(df_pred['Pred_MEWS'].notna().sum()) if 'Pred_MEWS' in df_pred.columns else 0
         rag_summary[label] = {
             'raw_rows': len(raw),
             'joined_rows': len(merged),
             'pred_rows': total_preds,
             'rag_true': rag_count,
-            'rag_pct': rag_count/total_preds if total_preds>0 else 0.0
+            'rag_pct': rag_count/total_preds if total_preds>0 else 0.0,
+            'news_extracted': news_extracted,
+            'mews_extracted': mews_extracted,
         }
-        logger.info(f"Loaded {len(merged)} rows for experiment '{label}' (pred_rows={total_preds}, rag_true={rag_count})")
+        logger.info(f"Loaded {len(merged)} rows for experiment '{label}' (pred_rows={total_preds}, rag_true={rag_count}, NEWS_extracted={news_extracted}/{total_preds}, MEWS_extracted={mews_extracted}/{total_preds})")
     # attach rag_summary for debug/exports
     merged_results['_rag_summary'] = rag_summary
     return merged_results
@@ -888,7 +958,7 @@ if __name__ == "__main__":
         "Baseline (One-Shot)": os.path.join(BASE_DIR, "results", "oneshot_baseline_results.jsonl"),
         "No RAG": os.path.join(BASE_DIR, "results", "norag_experiment_results_v1.jsonl"),
         "TriaLogic (Agents)": os.path.join(BASE_DIR, "results", "experiment_results_v1.jsonl"),
-        "TriaLogic (No Validator)": os.path.join(BASE_DIR, "results", "novalidator_experiment_results_v1.jsonl"),
+        "TriaLogic (No Validator)": os.path.join(BASE_DIR, "results", "novalidation_experiment_results_v1.jsonl"),
         "TriaLogic (Probabilistic)": os.path.join(BASE_DIR, "results", "probabilistic_experiment_results_v1.jsonl"),
     }
 
@@ -930,8 +1000,10 @@ if __name__ == "__main__":
     # print RAG summary if available
     rag_summary = merged.get('_rag_summary', {})
     if isinstance(rag_summary, dict) and len(rag_summary) > 0:
-        print("\n=== RAG SUMMARY per Experiment ===")
+        print("\n=== RAG & Score Extraction SUMMARY per Experiment ===")
         for k, s in rag_summary.items():
-            print(f"{k}: joined_rows={s['joined_rows']}, raw_rows={s['raw_rows']}, pred_rows={s['pred_rows']}, rag_true={s['rag_true']} ({s['rag_pct']:.2%})")
+            news_ext = s.get('news_extracted', '?')
+            mews_ext = s.get('mews_extracted', '?')
+            print(f"{k}: joined={s['joined_rows']}, preds={s['pred_rows']}, rag_true={s['rag_true']} ({s['rag_pct']:.2%}), NEWS_extracted={news_ext}/{s['pred_rows']}, MEWS_extracted={mews_ext}/{s['pred_rows']}")
 
     print("\n✅ Avaliação concluída. Verifique 'results/' e 'results/per_system/' para as tabelas coloridas.")

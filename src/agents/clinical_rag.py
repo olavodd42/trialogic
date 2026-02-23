@@ -1,6 +1,7 @@
 import os
+import re
 import logging
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.documents import Document
 
@@ -8,6 +9,7 @@ from dotenv import load_dotenv
 
 from src.state.agent_state import AgentState
 from src.utils.vectorstore import get_vectorstore
+from src.utils.run_with_timeout import run_with_timeout
 
 load_dotenv()
 
@@ -34,6 +36,55 @@ GUIDELINE_KEYWORDS = [
     "management", "treatment", "protocol",
     "guideline", "assessment", "ct scan"
 ]
+
+
+def _extract_clean_query(raw_response: str) -> str:
+    """
+    Post-processes the LLM response to extract only the search query.
+    LLaMA 3.1 often outputs full reasoning before the actual query.
+    Strategy:
+      1. Look for quoted strings — pick the first clinically-relevant one.
+      2. If multiple short quotes, join the first 2.
+      3. If no quotes, take the last non-empty short line.
+      4. Fallback to first 200 chars.
+    """
+    MAX_QUERY_LEN = 200
+
+    # 1. Find all quoted strings (10..500 chars — LLaMA sometimes generates long quotes)
+    quoted = re.findall(r'"([^"]{10,500})"', raw_response)
+    if quoted:
+        # Filter out meta-phrases that are not real queries
+        real_queries = [
+            q for q in quoted
+            if not q.lower().startswith(("based on", "here is", "note that", "this query", "considering"))
+        ]
+        if not real_queries:
+            real_queries = quoted
+        
+        if len(real_queries) == 1:
+            return real_queries[0][:MAX_QUERY_LEN]
+        
+        # Multiple queries: pick the first one (most relevant to primary condition)
+        # If it's short (<60 chars), combine with the second for richer context
+        first = real_queries[0]
+        if len(first) < 60 and len(real_queries) > 1:
+            combined = f"{first} {real_queries[1]}"
+            return combined[:MAX_QUERY_LEN]
+        return first[:MAX_QUERY_LEN]
+
+    # 2. Look for lines that look like a query (no markdown headers, short-ish)
+    lines = [l.strip() for l in raw_response.strip().split("\n") if l.strip()]
+    candidate_lines = [
+        l for l in lines
+        if 15 < len(l) < 300
+        and not l.startswith(("**", "#", "-", "*"))
+        and not l.lower().startswith(("note", "based on", "here is", "this query", "considering", "since", "we will"))
+    ]
+    if candidate_lines:
+        return candidate_lines[-1][:MAX_QUERY_LEN]
+
+    # 3. Fallback
+    return raw_response[:MAX_QUERY_LEN]
 
 
 def is_actionable_guideline(docs: list[Document]) -> bool:
@@ -70,10 +121,11 @@ def clinical_rag_node(state: AgentState) -> AgentState:
     risk_score = state.get("risk_score_report", "Risk Score not calculated")
     
     # 2. LLM Configuration (Query Generator)
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
+    llm = ChatOllama(
+        model="llama3.1",
         temperature=0,
-        seed=42
+        seed=42,
+        num_ctx=8192,
     )
 
     # 3. Prompt Hardcoded (The "Constitution" of RAG)
@@ -93,12 +145,15 @@ def clinical_rag_node(state: AgentState) -> AgentState:
     try:
         # 4. Query Generation
         logger.debug("Generating Search Query via LLM...")
-        response = llm.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_message)
-        ])
-        search_query = response.content.strip()
-        logger.info(f"🔍 RAG Query Generated: '{search_query}'")
+        response = run_with_timeout(
+            llm.invoke,
+            [SystemMessage(content=system_prompt), HumanMessage(content=user_message)],
+            timeout=120, retries=2
+        )
+        raw_query = response.content.strip()
+        search_query = _extract_clean_query(raw_query)
+        logger.info(f"🔍 RAG Query (clean): '{search_query}'")
+        logger.debug(f"RAG Query (raw, {len(raw_query)} chars): '{raw_query[:120]}...'")
 
         # 5. Similarity search
         logger.debug("Accessing VectorStore...")

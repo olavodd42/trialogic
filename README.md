@@ -172,11 +172,16 @@ TriaLogic/
 
 4. **Configuração do Ambiente**:
 
-    Crie um arquivo `.env` na raiz do projeto com suas chaves de API:
+    Crie um arquivo `.env` na raiz do projeto (opcional, para configurações extras):
 
     ```env
-    OPENAI_API_KEY=sua_chave_openai_aqui
     ANTHROPIC_API_KEY=sua_chave_anthropic_aqui  # Opcional
+    ```
+
+    **Pré-requisito**: Instale o [Ollama](https://ollama.ai) e baixe o modelo:
+
+    ```bash
+    ollama pull llama3.1:8b
     ```
 
 5. **Prepare a Base de Conhecimento** (para RAG):
@@ -255,7 +260,8 @@ O sistema reporta automaticamente métricas detalhadas incluindo:
 ### Tecnologias Principais
 
 - **LangGraph**: Framework de orquestração de agentes
-- **OpenAI GPT-4o-mini**: Modelo de linguagem principal
+- **LLaMA 3.1 8B (via Ollama)**: Modelo de linguagem principal (local)
+- **HuggingFace Sentence-Transformers**: Embeddings para RAG (all-MiniLM-L6-v2)
 - **ChromaDB**: Banco de dados vetorial para RAG
 - **Pydantic**: Validação e estruturação de dados
 - **LangChain**: Ferramentas de LLM e integração

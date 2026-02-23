@@ -2,7 +2,7 @@ import re
 import logging
 import os
 from typing import Dict, Any, cast
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import ValidationError
@@ -33,7 +33,7 @@ class ScribeAgent:
         Initializes the ScribeAgent with a language model and a prompt file.
 
         Args:
-            model (BaseChatModel): The LangChain chat model instance (e.g., ChatOllama, ChatOpenAI) to be used for extraction.
+            model (BaseChatModel): The LangChain chat model instance (e.g., ChatOllama) to be used for extraction.
             prompt_path (str): Relative path to the markdown file containing the system prompt. Defaults to "prompts/scribe_prompt.md".
         """
         self.model = model
@@ -124,7 +124,7 @@ class ScribeAgent:
             # 2. Extract data with the Scribe Agent
             logger.info("✍--- NODE: SCRIBE ---")
             logger.debug("Extracting data from clinical note...")
-            raw_response = run_with_timeout(self.structured_model.invoke, messages, timeout=60, retries=3)
+            raw_response = run_with_timeout(self.structured_model.invoke, messages, timeout=180, retries=3)
             response: RawScribeOutput = cast(RawScribeOutput, raw_response)
             logger.debug(f"Raw LLM response: {response}")
 
@@ -171,16 +171,15 @@ class ScribeAgent:
                 "is_success": False
             }
 
-if __name__ == "__main__":
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0,
-        seed=42,
-        timeout=60
-    )
-    agent = ScribeAgent(llm)
-    test_messages = [
-        SystemMessage(content="Say 'pong'"),
-        HumanMessage(content="ping")
-    ]
-    print(run_with_timeout(llm.invoke, test_messages, timeout=15))
+# if __name__ == "__main__":
+#     llm = ChatOllama(
+#         model="llama3.1:8b",
+#         temperature=0,
+#         seed=42,
+#     )
+#     agent = ScribeAgent(llm)
+#     test_messages = [
+#         SystemMessage(content="Say 'pong'"),
+#         HumanMessage(content="ping")
+#     ]
+#     print(run_with_timeout(llm.invoke, test_messages, timeout=15))

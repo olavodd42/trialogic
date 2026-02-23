@@ -2,7 +2,7 @@ import os
 import re
 from difflib import SequenceMatcher
 from typing import Dict, Tuple, Optional, Any, cast
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 import logging
 from dotenv import load_dotenv
@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from src.state.agent_state import AgentState
 from src.schemas.auditor_schema import AuditorOutput
 from src.utils.check_quote import check_quote_fidelity
+from src.utils.run_with_timeout import run_with_timeout
 load_dotenv()
 
 SEED = 42
@@ -151,10 +152,11 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
     
     full_patient_content = f"EXTRACTED DATA: {extracted_data}\nRISK CALCULATIONS: {risk_report}"
 
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
+    llm = ChatOllama(
+        model="llama3.1",
         temperature=0,
-        seed=42
+        seed=42,
+        num_ctx=8192,
     )
     structured_llm = llm.with_structured_output(AuditorOutput)
 
@@ -178,10 +180,12 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
     try:
         logger.debug("Generating Evaluation via LLM...")
         # 2. Call the LLM to audit
-        evaluation = cast(AuditorOutput, chain.invoke({
-            "rules": full_context_content,
-            "patient": full_patient_content
-        }))
+        evaluation = cast(AuditorOutput, run_with_timeout(
+            chain.invoke,
+            {"rules": full_context_content, "patient": full_patient_content},
+            timeout=180,
+            retries=2
+        ))
 
         # print(evaluation)
 
@@ -191,7 +195,12 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
             quote = getattr(evaluation, "evidence_quote", "")
 
         # 3. Check the evidence quote fidelity to RAG data
-        is_faithful = check_quote_fidelity(quote, full_context_content)
+        # Skip hallucination check if quote is intentionally empty (RAG had no relevant match)
+        if not quote or not quote.strip():
+            logger.info("\U0001f4dd Evidence quote empty (expected when RAG found no match). Skipping hallucination check.")
+            is_faithful = True
+        else:
+            is_faithful = check_quote_fidelity(quote, full_context_content)
         if not is_faithful:
             logger.warning(f"🚨 HALLUCINATION DETECTED: Quote '{quote}' not found.")
 

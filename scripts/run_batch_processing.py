@@ -1,6 +1,7 @@
 import sys
 import os
 import json
+import argparse
 import pandas as pd
 from tqdm import tqdm # Barra de progresso
 
@@ -21,11 +22,61 @@ SEED = 42
 
 # Caminhos
 INPUT_CSV = os.path.join(os.getcwd(), "data/gold_standard_dataset.csv") # O dataset filtrado que criamos antes
-OUTPUT_FILE = os.path.join(os.getcwd(), "results/probabilistic_experiment_results_v1.jsonl")
 
-app = create_workflow()
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="TriaLogic Batch Processing - Run clinical triage experiments with configurable pipeline components."
+    )
+    parser.add_argument(
+        "--output", "-o",
+        type=str,
+        default=os.path.join(os.getcwd(), "results/experiment_results.jsonl"),
+        help="Path to the output JSONL file (default: results/experiment_results.jsonl)",
+    )
+    parser.add_argument(
+        "--no-validator",
+        action="store_true",
+        default=False,
+        help="Disable the Validator node (skip physiological plausibility checks).",
+    )
+    parser.add_argument(
+        "--no-rag",
+        action="store_true",
+        default=False,
+        help="Disable Clinical RAG retrieval and Synthesizer nodes.",
+    )
+    parser.add_argument(
+        "--probabilistic",
+        action="store_true",
+        default=False,
+        help="Use LLM-based probabilistic scoring in the Mathematician (default: deterministic calculator).",
+    )
+    return parser.parse_args()
+
+
+args = parse_args()
+
+OUTPUT_FILE = args.output
+USE_VALIDATOR = not args.no_validator
+USE_RAG = not args.no_rag
+USE_PROBABILISTIC = args.probabilistic
+
+app = create_workflow(
+    use_validator=USE_VALIDATOR,
+    use_rag=USE_RAG,
+    use_probabilistic=USE_PROBABILISTIC,
+)
 
 def main():
+    logger.info("=" * 60)
+    logger.info("TriaLogic Batch Processing")
+    logger.info(f"  Validator:     {'ON' if USE_VALIDATOR else 'OFF'}")
+    logger.info(f"  Clinical RAG:  {'ON' if USE_RAG else 'OFF'}")
+    logger.info(f"  Mathematician: {'Probabilistic (LLM)' if USE_PROBABILISTIC else 'Deterministic'}")
+    logger.info(f"  Output:        {OUTPUT_FILE}")
+    logger.info("=" * 60)
+
     # 1. Load data
     if not os.path.exists(INPUT_CSV):
         logger.error(f"❌ Create the file {INPUT_CSV} first (use filter scripts).")
@@ -50,7 +101,7 @@ def main():
                     continue # Pula linhas corrompidas (se houver)
 
     # df = df.head(5)
-    logger.info(f"🧪 Start batch experiment with {len(df) - len(processed_ids)} cases.")
+    logger.info(f"🧪 Start batch experiment with {max(0, len(df) - len(processed_ids))} cases.")
 
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
@@ -102,9 +153,10 @@ def main():
                     "hadm_id": hadm_id,
                     "cohort": row.get('cohort_type', 'unknown'),
                     "risk_score": final_state.get("risk_score_report"),
+                    "risk_analysis": final_state.get("risk_analysis"),
                     "auditor_verdict": final_state.get("auditor_report"),
                     "extracted_vitals": extracted_vitals,
-                    "rag_context_used": True # Booleano simples se usou contexto
+                    "rag_context_used": final_state.get("rag_context_used", USE_RAG),
                 }
 
                 logger.info(f"Writing to json: {result_record}")

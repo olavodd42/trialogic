@@ -4,7 +4,7 @@ import json
 import re
 import pandas as pd
 from typing import List, Dict, Any, Optional
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
 from tqdm import tqdm
 from dotenv import load_dotenv
@@ -15,8 +15,8 @@ load_dotenv()
 logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
+llm = ChatOllama(
+    model="llama3.1:8b",
     temperature=0,
     seed=42
 )

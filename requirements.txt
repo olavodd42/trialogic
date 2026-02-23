@@ -1,7 +1,9 @@
 langchain
-langchain-openai
 langchain-community
 langchain-core
+langchain-ollama
+langchain-huggingface
+langchain-chroma
 pandas
 polars
 pydantic
@@ -10,7 +12,4 @@ python-dotenv
 psycopg2-binary
 chromadb
 pypdf
-langchain-chroma
-langchain-ollama
 sentence-transformers
-langchain-huggingface
