@@ -38,7 +38,8 @@ class ScribeAgent:
         """
         self.model = model
         self.system_prompt = self._load_prompt(prompt_path)
-        logger.debug(f"Prompt loaded: {self.system_prompt[:120].replace('\n',' ')} ...")
+        preview = self.system_prompt[:120].replace('\n', ' ')
+        logger.debug(f"Prompt loaded: {preview} ...")
         self.structured_model = self.model.with_structured_output(RawScribeOutput)
 
     def _load_prompt(self, path: str) -> str:

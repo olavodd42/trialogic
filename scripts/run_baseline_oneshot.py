@@ -2,7 +2,13 @@ import logging
 import os
 import json
 import re
+import time
+import argparse
+import threading
+import numpy as np
 import pandas as pd
+import httpx
+import subprocess
 from typing import List, Dict, Any, Optional
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -11,15 +17,84 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# ── Per-case timeout (seconds) – hard wall-clock limit ──
+LLM_TIMEOUT = 180
+# ── Max consecutive failures before aborting ──
+MAX_CONSECUTIVE_FAILURES = 5
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Baseline One-Shot - Run clinical triage baseline experiment with one-shot prompting."
+    )
+    parser.add_argument(
+        "--output", "-o",
+        type=str,
+        default=os.path.join(BASE_DIR, "results/oneshot_baseline_results.jsonl"),
+        help="Path to the output JSONL file (default: results/oneshot_baseline_results.jsonl)",
+    )
+    parser.add_argument(
+        "--input", "-i",
+        type=str,
+        default=os.path.join(BASE_DIR, "data/gold_standard_dataset.csv"),
+        help="Path to the input CSV dataset (default: data/gold_standard_dataset.csv)",
+    )
+    parser.add_argument(
+        "--limit", "-n",
+        type=int,
+        default=None,
+        help="Limit number of cases to process (default: all)",
+    )
+    return parser.parse_args()
+
 # 1. Configuration
-logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-llm = ChatOllama(
-    model="llama3.1:8b",
-    temperature=0,
-    seed=42
-)
+# Silence verbose HTTP debug logs from httpx/httpcore
+for noisy_logger in ("httpx", "httpcore", "httpcore.http11", "httpcore.connection"):
+    logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+
+def create_llm():
+    """Create a fresh ChatOllama instance."""
+    return ChatOllama(
+        model="llama3.1:latest",
+        temperature=0,
+        seed=42,
+        num_predict=2048,   # Must be large enough for full JSON output + any preamble
+        keep_alive=-1,
+    )
+
+llm = create_llm()
+
+
+def invoke_with_hard_timeout(messages, timeout_seconds: int = LLM_TIMEOUT):
+    """Invoke LLM with a hard wall-clock timeout using a daemon thread."""
+    global llm
+    result = [None]
+    error = [None]
+
+    def _invoke():
+        try:
+            result[0] = llm.invoke(messages)
+        except Exception as e:
+            error[0] = e
+
+    t = threading.Thread(target=_invoke, daemon=True)
+    t.start()
+    t.join(timeout=timeout_seconds)
+
+    if t.is_alive():
+        logger.warning(f"⏰ Hard timeout ({timeout_seconds}s) exceeded. Recreating LLM client...")
+        llm = create_llm()
+        raise TimeoutError(f"LLM call exceeded {timeout_seconds}s hard timeout")
+
+    if error[0]:
+        raise error[0]
+
+    return result[0]
 
 # 2. One-shot Prompt
 PROMPT_PATH = "prompts/one_shot_prompt.md"
@@ -32,117 +107,323 @@ except FileNotFoundError:
 
 
 def robust_json_extractor(text: str) -> Optional[Dict]:
-    import re, json
-    # Captures all blocks between first `{` and last `}`
+    """Extract a JSON object from LLM output, handling preamble, code blocks,
+    and stray braces from echoed prompt content (e.g. T_{C} formulas)."""
+    EXPECTED_KEYS = {"extracted_vitals", "text_report", "reasoning"}
+
+    # 1. Direct parse
     try:
-        # 1. Try direct clean extraction
         return json.loads(text)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, ValueError):
         pass
 
-    # 2. Removes markdown blocks (```json ... ```)
-    clean_text = re.sub(r'```json\s*', '', text)
-    clean_text = re.sub(r'```\s*', '', clean_text)
-    
+    # 2. Strip markdown code blocks
+    clean = re.sub(r'```(?:json|JSON)?\s*', '', text)
+    clean = re.sub(r'```\s*', '', clean)
     try:
-        return json.loads(clean_text)
-    except json.JSONDecodeError:
+        return json.loads(clean)
+    except (json.JSONDecodeError, ValueError):
         pass
 
-    # 3. Finds the biggest valid JSON object in the string (Greedy Match)
-    match = re.search(r'(\{.*\})', clean_text, re.DOTALL)
-    if match:
-        json_str = match.group(1)
-        try:
-            return json.loads(json_str)
-        except json.JSONDecodeError:
-            pass
-            
-    return None
+    # 3. Brace-counting: find ALL complete JSON objects, pick best one
+    candidates = []
+    i = 0
+    while i < len(clean):
+        if clean[i] != '{':
+            i += 1
+            continue
+        # Try to find the matching closing brace
+        depth = 0
+        in_str = False
+        esc = False
+        for j in range(i, len(clean)):
+            c = clean[j]
+            if esc:
+                esc = False
+                continue
+            if c == '\\':
+                esc = True
+                continue
+            if c == '"':
+                in_str = not in_str
+                continue
+            if in_str:
+                continue
+            if c == '{':
+                depth += 1
+            elif c == '}':
+                depth -= 1
+                if depth == 0:
+                    candidate_str = clean[i:j+1]
+                    if len(candidate_str) > 10:  # skip trivial {C} etc.
+                        try:
+                            obj = json.loads(candidate_str)
+                            if isinstance(obj, dict):
+                                candidates.append(obj)
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+                    break
+        i += 1  # move past this '{' regardless
 
-def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None):
-    results = []
+    if not candidates:
+        # 4. Last resort: greedy regex (original fallback)
+        match = re.search(r'(\{.*\})', clean, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return None
+
+    # Prefer candidate with expected keys
+    for c in candidates:
+        if EXPECTED_KEYS & set(c.keys()):
+            return c
+    # Otherwise return the largest candidate (most likely the real one)
+    return max(candidates, key=lambda c: len(json.dumps(c)))
+
+def load_completed_hadm_ids(output_path: str) -> set:
+    """Load hadm_ids already processed from the output JSONL file."""
+    completed = set()
+    if os.path.exists(output_path):
+        with open(output_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    hadm_id = entry.get('hadm_id')
+                    if hadm_id is not None:
+                        completed.add(hadm_id)
+                except json.JSONDecodeError:
+                    continue
+    return completed
+
+
+def check_ollama_health(base_url: str = "http://127.0.0.1:11434") -> bool:
+    """Check if Ollama is reachable."""
+    try:
+        r = httpx.get(f"{base_url}/api/tags", timeout=5)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def wait_for_ollama(base_url: str = "http://127.0.0.1:11434", max_wait: int = 60):
+    """Wait until Ollama is reachable, optionally trying to start it."""
+    logger.info("⏳ Waiting for Ollama to become available...")
+    for i in range(max_wait // 5):
+        if check_ollama_health(base_url):
+            logger.info("✅ Ollama is available.")
+            return True
+        if i == 0:
+            try:
+                subprocess.Popen(
+                    ["ollama", "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                )
+                logger.info("🔄 Attempted to start 'ollama serve'...")
+            except FileNotFoundError:
+                logger.warning("ollama binary not found in PATH.")
+        time.sleep(5)
+    logger.error("❌ Ollama did not become available.")
+    return False
+
+
+def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None, output_path: Optional[str] = None):
+    latencies = []
+    results_count = 0
+    errors_count = 0
     
     # 3. Limit for fast test if necessary
     if limit:
         df = df.head(limit)
-        
+
+    # Skip already processed cases
+    completed_ids = load_completed_hadm_ids(output_path) if output_path else set()
+    if completed_ids:
+        before = len(df)
+        df = df[~df['hadm_id'].isin(completed_ids)]
+        skipped = before - len(df)
+        logger.info(f"⏭️  Skipping {skipped} already processed cases ({len(completed_ids)} found in output file).")
+
+    # Verify Ollama is available before starting
+    if not check_ollama_health():
+        if not wait_for_ollama():
+            logger.error("Aborting: Ollama is not running.")
+            return {}
+
     logger.info(f"🚀 Starting baseline (Vanilla Llama 3.1) in {len(df)} cases...")
-    iterator = tqdm(df.iterrows(), total=df.shape[0], desc="Processing Clinical Notes")
-    for index, row in iterator:
-        text = str(row.get('text', ''))
-        hadm_id = row.get('hadm_id', index)
 
-        if pd.isna(text) or str(text).strip() == "":
-                results.append({"hadm_id": hadm_id, "error": "EMPTY_TEXT"})
+    # Open output file in append mode for incremental saving
+    os.makedirs(os.path.dirname(output_path), exist_ok=True) if output_path else None
+    out_file = open(output_path, 'a', encoding='utf-8') if output_path else None
+
+    consecutive_failures = 0
+
+    try:
+        iterator = tqdm(df.iterrows(), total=df.shape[0], desc="Processing Clinical Notes")
+        for index, row in iterator:
+            start_time = time.time()
+            text = str(row.get('text', ''))
+            hadm_id = row.get('hadm_id', index)
+
+            if pd.isna(text) or str(text).strip() == "":
+                result_entry = {"hadm_id": hadm_id, "error": "EMPTY_TEXT"}
+                if out_file:
+                    out_file.write(json.dumps(result_entry) + '\n')
+                    out_file.flush()
+                errors_count += 1
                 continue
-        
-        try:
-            # 3. Zero-shot inference (dummy)
-            prompt = BASELINE_PROMPT_TEMPLATE.replace("{clinical_text}", str(text))
-            # prompt = BASELINE_PROMPT.format(clinical_text=text)
-            response = llm.invoke([
-                HumanMessage(content=prompt)
-            ])
             
-            raw_content = response.content
+            result_entry = None
+            try:
+                # Check if too many consecutive failures
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    logger.warning(f"🛑 {MAX_CONSECUTIVE_FAILURES} consecutive failures. Checking Ollama health...")
+                    if not wait_for_ollama():
+                        logger.error("Aborting batch: Ollama is unreachable.")
+                        break
+                    consecutive_failures = 0
 
-            # Ensure raw_content is a string
-            raw_content_str = str(raw_content)
+                # One-shot inference (with hard wall-clock timeout)
+                prompt = BASELINE_PROMPT_TEMPLATE.replace("{clinical_text}", str(text))
+                response = invoke_with_hard_timeout([
+                    HumanMessage(content=prompt)
+                ])
+                
+                raw_content = response.content
+                raw_content_str = str(raw_content)
 
-            logger.debug(raw_content_str)
-            # 4. Try to parse the response
-            parsed = robust_json_extractor(raw_content_str)
-            
-            if parsed:
+                logger.debug(raw_content_str)
+                # Try to parse the response
+                parsed = robust_json_extractor(raw_content_str)
+                
+                if parsed:
+                    result_entry = {
+                        "hadm_id": row.get('hadm_id'),
+                        "subject_id": row.get('subject_id'),
+                        "cohort": row.get('cohort_type', 'sepsis'),
+                        "extracted_vitals": parsed.get("extracted_vitals", {}),
+                        "risk_score": parsed.get("text_report", ""),
+                        "method": "baseline_one_shot",
+                        "raw_response": raw_content,
+                        "latency_seconds": None
+                    }
+                    results_count += 1
+                    consecutive_failures = 0
+                else:
+                    logger.warning(f"Failed to parse JSON for ID {row.get('subject_id')}")
+                    result_entry = {
+                        "hadm_id": row.get('hadm_id'),
+                        "error": "JSON_PARSE_ERROR",
+                        "raw_output": raw_content_str[:500]
+                    }
+                    errors_count += 1
+                    consecutive_failures = 0
+
+            except (httpx.TimeoutException, httpx.ConnectError, ConnectionError, OSError) as e:
+                consecutive_failures += 1
+                logger.warning(f"⏰ Connection/Timeout error on index {index} (hadm_id={row.get('hadm_id')}): {type(e).__name__}. Consecutive failures: {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}")
                 result_entry = {
-                    "hadm_id": row.get('hadm_id'), # CHAVE DE JOIN
-                    "subject_id": row.get('subject_id'),
-                    "cohort": row.get('cohort_type', 'sepsis'),
-                    "extracted_vitals": parsed.get("extracted_vitals", {}),
-                    "risk_score": parsed.get("text_report", ""),
-                    "method": "baseline_zero_shot",
-                    "raw_response": raw_content,
-                }
-                results.append(result_entry)
-            else:
-                logger.warning(f"Failed to parse JSON for ID {row.get('subject_id')}")
-                results.append({
                     "hadm_id": row.get('hadm_id'),
-                    "error": "JSON_PARSE_ERROR",
-                    "raw_output": raw_content[:50]
-                })
+                    "error": f"{type(e).__name__}: {str(e)[:80]}",
+                    "method": "baseline_error"
+                }
+                errors_count += 1
 
-        except Exception as e:
-            logger.error(f"Error on index {index}: {e}")
-            results.append({
-                "hadm_id": row.get('hadm_id'),
-                "error": f"EXCEPTION: {str(e)}",
-                "method": "baseline_error"
-            })
+            except Exception as e:
+                consecutive_failures += 1
+                logger.error(f"Error on index {index}: {e}")
+                result_entry = {
+                    "hadm_id": row.get('hadm_id'),
+                    "error": f"EXCEPTION: {str(e)}",
+                    "method": "baseline_error"
+                }
+                errors_count += 1
 
-    return results
+            finally:
+                end_time = time.time()
+                case_latency = end_time - start_time
+                latencies.append(case_latency)
+                if result_entry is not None:
+                    if "latency_seconds" in result_entry:
+                        result_entry["latency_seconds"] = round(case_latency, 4)
+                    if out_file:
+                        out_file.write(json.dumps(result_entry) + '\n')
+                        out_file.flush()
+    finally:
+        if out_file:
+            out_file.close()
+
+    logger.info(f"📦 Processed {results_count} OK, {errors_count} errors.")
+
+    # ── Latency Summary (for TCC / Article) ──
+    latency_summary = compute_latency_summary(latencies, method="baseline_one_shot")
+    return latency_summary
+
+def compute_latency_summary(latencies: list, method: str = "baseline") -> Dict[str, Any]:
+    """Compute comprehensive latency statistics suitable for academic reporting."""
+    if not latencies:
+        return {}
+    arr = np.array(latencies)
+    summary = {
+        "method": method,
+        "n_cases": len(arr),
+        "total_time_seconds": round(float(np.sum(arr)), 4),
+        "mean_seconds": round(float(np.mean(arr)), 4),
+        "median_seconds": round(float(np.median(arr)), 4),
+        "std_seconds": round(float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0, 4),
+        "min_seconds": round(float(np.min(arr)), 4),
+        "max_seconds": round(float(np.max(arr)), 4),
+        "p25_seconds": round(float(np.percentile(arr, 25)), 4),
+        "p75_seconds": round(float(np.percentile(arr, 75)), 4),
+        "p95_seconds": round(float(np.percentile(arr, 95)), 4),
+        "p99_seconds": round(float(np.percentile(arr, 99)), 4),
+    }
+    logger.info("=" * 60)
+    logger.info(f"📊 Latency Summary — {method}")
+    logger.info(f"  N cases:  {summary['n_cases']}")
+    logger.info(f"  Total:    {summary['total_time_seconds']:.2f}s")
+    logger.info(f"  Mean:     {summary['mean_seconds']:.4f}s")
+    logger.info(f"  Median:   {summary['median_seconds']:.4f}s")
+    logger.info(f"  Std Dev:  {summary['std_seconds']:.4f}s")
+    logger.info(f"  Min/Max:  {summary['min_seconds']:.4f}s / {summary['max_seconds']:.4f}s")
+    logger.info(f"  P25/P75:  {summary['p25_seconds']:.4f}s / {summary['p75_seconds']:.4f}s")
+    logger.info(f"  P95:      {summary['p95_seconds']:.4f}s")
+    logger.info(f"  P99:      {summary['p99_seconds']:.4f}s")
+    logger.info("=" * 60)
+    return summary
+
 
 if __name__ == "__main__":
-    # Caminhos
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    # Use data/gold_standard_dataset.csv for fair comparison with run_batch_processing.py
-    CSV_PATH = os.path.join(BASE_DIR, "data/gold_standard_dataset.csv") 
-    OUTPUT_PATH = os.path.join(BASE_DIR, "results/oneshot_baseline_results.jsonl")
+    args = parse_args()
+
+    CSV_PATH = args.input
+    OUTPUT_PATH = args.output
+
+    logger.info("=" * 60)
+    logger.info("Baseline One-Shot Experiment")
+    logger.info(f"  Input:   {CSV_PATH}")
+    logger.info(f"  Output:  {OUTPUT_PATH}")
+    logger.info(f"  Limit:   {args.limit or 'all'}")
+    logger.info("=" * 60)
     
     if os.path.exists(CSV_PATH):
         df = pd.read_csv(CSV_PATH)
-        # df = df.head(2) 
         if 'hadm_id' in df.columns:
             df['hadm_id'] = pd.to_numeric(df['hadm_id'], errors='coerce')
         
-        results = process_baseline_batch(df, limit=None)
+        latency_summary = process_baseline_batch(df, limit=args.limit, output_path=OUTPUT_PATH)
         
-        # Save
-        os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-        with open(OUTPUT_PATH, 'w', encoding='utf-8') as f:
-            for item in results:
-                f.write(json.dumps(item) + '\n')
+        # Save latency summary (JSON) for article/TCC
+        latency_path = OUTPUT_PATH.replace('.jsonl', '_latency.json')
+        with open(latency_path, 'w', encoding='utf-8') as f:
+            json.dump(latency_summary, f, indent=2, ensure_ascii=False)
+        logger.info(f"📊 Latency summary saved in {latency_path}")
                 
         logger.info(f"✅ Baseline finished. Results saved in {OUTPUT_PATH}")
     else:

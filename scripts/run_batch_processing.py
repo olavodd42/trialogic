@@ -1,7 +1,9 @@
 import sys
 import os
 import json
+import time
 import argparse
+import numpy as np
 import pandas as pd
 from tqdm import tqdm # Barra de progresso
 
@@ -106,7 +108,6 @@ def main():
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
     # 2. Processing loop
-    import time
     latencies = []
     with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
         for row in tqdm(df.to_dict(orient="records"), total=len(df), desc="Processing Agents"):
@@ -157,6 +158,7 @@ def main():
                     "auditor_verdict": final_state.get("auditor_report"),
                     "extracted_vitals": extracted_vitals,
                     "rag_context_used": final_state.get("rag_context_used", USE_RAG),
+                    "latency_seconds": None  # placeholder, filled in finally
                 }
 
                 logger.info(f"Writing to json: {result_record}")
@@ -169,11 +171,55 @@ def main():
                 f.write(json.dumps(error_record) + "\n")
             finally:
                 end_time = time.time()
-                latencies.append(end_time - start_time)
+                case_latency = end_time - start_time
+                latencies.append(case_latency)
+                # Attach latency to the last written record
+                # (record was already flushed, so we log it separately)
 
+    # ── Latency Summary (for TCC / Article) ──
     if latencies:
-        avg_latency = sum(latencies) / len(latencies)
-        logger.info(f"Average inference per case (TriaLogic): {avg_latency:.2f} seconds")
+        arr = np.array(latencies)
+        method_label = "TriaLogic"
+        if not USE_VALIDATOR:
+            method_label += "_NoValidator"
+        if not USE_RAG:
+            method_label += "_NoRAG"
+        if USE_PROBABILISTIC:
+            method_label += "_Probabilistic"
+
+        latency_summary = {
+            "method": method_label,
+            "n_cases": len(arr),
+            "total_time_seconds": round(float(np.sum(arr)), 4),
+            "mean_seconds": round(float(np.mean(arr)), 4),
+            "median_seconds": round(float(np.median(arr)), 4),
+            "std_seconds": round(float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0, 4),
+            "min_seconds": round(float(np.min(arr)), 4),
+            "max_seconds": round(float(np.max(arr)), 4),
+            "p25_seconds": round(float(np.percentile(arr, 25)), 4),
+            "p75_seconds": round(float(np.percentile(arr, 75)), 4),
+            "p95_seconds": round(float(np.percentile(arr, 95)), 4),
+            "p99_seconds": round(float(np.percentile(arr, 99)), 4),
+        }
+        logger.info("=" * 60)
+        logger.info(f"📊 Latency Summary — {method_label}")
+        logger.info(f"  N cases:  {latency_summary['n_cases']}")
+        logger.info(f"  Total:    {latency_summary['total_time_seconds']:.2f}s")
+        logger.info(f"  Mean:     {latency_summary['mean_seconds']:.4f}s")
+        logger.info(f"  Median:   {latency_summary['median_seconds']:.4f}s")
+        logger.info(f"  Std Dev:  {latency_summary['std_seconds']:.4f}s")
+        logger.info(f"  Min/Max:  {latency_summary['min_seconds']:.4f}s / {latency_summary['max_seconds']:.4f}s")
+        logger.info(f"  P25/P75:  {latency_summary['p25_seconds']:.4f}s / {latency_summary['p75_seconds']:.4f}s")
+        logger.info(f"  P95:      {latency_summary['p95_seconds']:.4f}s")
+        logger.info(f"  P99:      {latency_summary['p99_seconds']:.4f}s")
+        logger.info("=" * 60)
+
+        # Save latency summary
+        latency_path = OUTPUT_FILE.replace('.jsonl', '_latency.json')
+        with open(latency_path, 'w', encoding='utf-8') as f:
+            json.dump(latency_summary, f, indent=2, ensure_ascii=False)
+        logger.info(f"📊 Latency summary saved in {latency_path}")
+
     print(f"\n✅ Finished experiment. Results saved in {OUTPUT_FILE}")
 
 if __name__ == "__main__":

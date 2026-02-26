@@ -139,7 +139,8 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
     rag_context_used = state.get("rag_context_used", False)
 
     logger.debug(f"RAG_CONTEXT LEN: {len(rag_context) if rag_context else 0}")
-    logger.debug(f"RAG_CONTEXT PREVIEW:\n{rag_context[:500] if rag_context else ""}")
+    rag_preview = rag_context[:500] if rag_context else ""
+    logger.debug(f"RAG_CONTEXT PREVIEW:\n{rag_preview}")
 
     # 1. Describe o contexto condicionalmente
     if True:
