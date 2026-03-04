@@ -1,50 +1,53 @@
+"""Diagnostic script to inspect the ChromaDB vector store collections."""
+
 import os
+
 import chromadb
 from chromadb.config import Settings
 
-# 1. Definir o caminho exato onde o banco deveria estar
+# 1. Define the exact path where the database should be
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 persist_directory = os.path.join(project_root, "chroma_db")
 
-print(f"🕵️  INVESTIGAÇÃO DO BANCO DE DADOS")
-print(f"📂 Caminho Alvo: {persist_directory}")
+print(f"DATABASE INVESTIGATION")
+print(f"Target path: {persist_directory}")
 
 if not os.path.exists(persist_directory):
-    print("❌ ERRO CRÍTICO: A pasta 'chroma_db' NÃO EXISTE neste caminho.")
-    print("   Solução: Rode o script 'ingest_knowledge.py' novamente.")
+    print("CRITICAL ERROR: The 'chroma_db' folder DOES NOT EXIST at this path.")
+    print("   Solution: Run the 'ingest_knowledge.py' script again.")
     exit(1)
 
 try:
-    # Conecta direto no ChromaDB (sem passar pelo LangChain)
+    # Connect directly to ChromaDB (without LangChain)
     client = chromadb.PersistentClient(path=persist_directory)
     
     collections = client.list_collections()
     
     if not collections:
-        print("⚠️  O banco existe (pasta), mas NÃO TEM NENHUMA COLEÇÃO dentro.")
+        print("The database folder exists, but it has NO COLLECTIONS inside.")
         exit(1)
         
-    print(f"\n✅ Conexão bem sucedida! Encontrei {len(collections)} coleção(ões):")
+    print(f"\nConnection successful! Found {len(collections)} collection(s):")
     print("="*60)
-    print(f"{'NOME DA COLEÇÃO':<30} | {'QTD DOCUMENTOS':<15} | {'STATUS'}")
+    print(f"{'COLLECTION NAME':<30} | {'DOC COUNT':<15} | {'STATUS'}")
     print("-" * 60)
     
     for col in collections:
         count = col.count()
-        status = "🟢 CHEIA" if count > 0 else "🔴 VAZIA"
+        status = "OK" if count > 0 else "EMPTY"
         print(f"{col.name:<30} | {count:<15} | {status}")
         
     print("="*60)
     
-    # Análise para o TCC
+    # Analysis for the TCC
     target_col = "clinical_guidelines"
     found_target = any(c.name == target_col for c in collections)
     
     if not found_target:
-        print(f"\n🚨 DIAGNÓSTICO: O seu código 'clinical_rag.py' procura por '{target_col}',")
-        print(f"   mas essa coleção NÃO EXISTE. O ingest salvou com outro nome (provavelmente 'langchain').")
-        print(f"   👉 SOLUÇÃO: Edite 'src/agents/clinical_rag.py' e mude 'collection_name' para o nome listado acima.")
+        print(f"\nDIAGNOSIS: Your code 'clinical_rag.py' looks for '{target_col}',")
+        print(f"   but that collection DOES NOT EXIST. Ingestion saved under another name (probably 'langchain').")
+        print(f"   SOLUTION: Edit 'src/agents/clinical_rag.py' and change 'collection_name' to the name listed above.")
 
 except Exception as e:
-    print(f"❌ Erro ao ler o banco: {e}")
+    print(f"Error reading the database: {e}")

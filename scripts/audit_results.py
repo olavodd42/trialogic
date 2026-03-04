@@ -1,28 +1,31 @@
-import pandas as pd
+"""Data-integrity audit comparing ground truth CSV with experiment JSONL results."""
+
 import json
 import os
 
-# CONFIGURAÇÃO
+import pandas as pd
+
+# Configuration
 CSV_PATH = "data/gold_standard_dataset.csv"
 JSONL_PATH = "results/experiment_results_v1.jsonl"
 
 def audit_discrepancy():
-    print("🕵️‍♂️  INICIANDO AUDITORIA DE INTEGRIDADE DE DADOS...\n")
+    print("Starting data integrity audit...\n")
 
-    # 1. Carregar Ground Truth
+    # 1. Load Ground Truth
     if not os.path.exists(CSV_PATH):
-        print(f"❌ Erro: CSV não encontrado em {CSV_PATH}")
+        print(f"Error: CSV not found at {CSV_PATH}")
         return
     df_gt = pd.read_csv(CSV_PATH)
     total_gt = len(df_gt)
-    # Normalizar IDs para string para garantir match
+    # Normalise IDs to string to ensure matching
     gt_ids = set(df_gt['subject_id'].astype(str) + "_" + df_gt['hadm_id'].astype(str))
     
-    print(f"📊 Total de Casos no Gabarito (CSV): {total_gt}")
+    print(f"Total cases in ground truth (CSV): {total_gt}")
 
-    # 2. Carregar Resultados do Experimento
+    # 2. Load Experiment Results
     if not os.path.exists(JSONL_PATH):
-        print(f"❌ Erro: JSONL não encontrado em {JSONL_PATH}")
+        print(f"Error: JSONL not found at {JSONL_PATH}")
         return
     
     processed_rows = []
@@ -30,7 +33,7 @@ def audit_discrepancy():
         for line in f:
             try:
                 data = json.loads(line)
-                # Verifica se é registro de erro explícito
+                # Check for explicit error record
                 if "error" in data:
                     processed_rows.append({"type": "error", "id": f"{data.get('subject_id')}_{data.get('hadm_id')}"})
                 else:
@@ -42,21 +45,21 @@ def audit_discrepancy():
     success_ids = {row['id'] for row in processed_rows if row['type'] == 'success'}
     error_ids = {row['id'] for row in processed_rows if row['type'] == 'error'}
     
-    print(f"📊 Total de Casos no Resultado (JSONL): {total_processed}")
-    print(f"   ✅ Sucessos (Vitals extraídos): {len(success_ids)}")
-    print(f"   ❌ Erros Explícitos (Exceptions): {len(error_ids)}")
+    print(f"Total cases in results (JSONL): {total_processed}")
+    print(f"   Successes (vitals extracted): {len(success_ids)}")
+    print(f"   Explicit errors (exceptions): {len(error_ids)}")
 
-    # 3. Análise de GAP (Quem sumiu?)
+    # 3. GAP Analysis (Who went missing?)
     processed_ids = success_ids.union(error_ids)
     missing_ids = gt_ids - processed_ids
     
     print("\n" + "="*40)
-    print(f"📉 REGISTROS PERDIDOS (SKIPPED): {len(missing_ids)}")
+    print(f"SKIPPED RECORDS: {len(missing_ids)}")
     print("="*40)
 
     if len(missing_ids) > 0:
-        print("\n🔍 Investigando causa dos perdidos (Amostra):")
-        # Vamos olhar no CSV original para ver se eram textos curtos
+        print("\nInvestigating cause of missing records (sample):")
+        # Check the original CSV to see if they were short texts
         df_gt['unique_id'] = df_gt['subject_id'].astype(str) + "_" + df_gt['hadm_id'].astype(str)
         missing_df = df_gt[df_gt['unique_id'].isin(missing_ids)]
         
@@ -66,19 +69,19 @@ def audit_discrepancy():
             if text_len < 50:
                 short_text_count += 1
             
-            # Printar os 3 primeiros para exemplo
+            # Print first 3 as examples
             if short_text_count <= 3:
-                print(f"   - ID {row['subject_id']}: Tamanho do texto = {text_len} chars")
+                print(f"   - ID {row['subject_id']}: Text length = {text_len} chars")
 
-        print(f"\n💡 Diagnóstico: {short_text_count} de {len(missing_ids)} perdidos tinham texto < 50 caracteres.")
+        print(f"\nDiagnosis: {short_text_count} of {len(missing_ids)} missing records had text < 50 characters.")
         
         real_success_rate = len(success_ids) / total_gt
         adjusted_success_rate = len(success_ids) / (total_gt - short_text_count)
         
         print("\n" + "="*40)
-        print("📈 ESTATÍSTICAS REAIS:")
-        print(f"   - Taxa Bruta (vs Total CSV): {real_success_rate:.2%}")
-        print(f"   - Taxa Ajustada (vs Textos Válidos): {adjusted_success_rate:.2%}")
+        print("ACTUAL STATISTICS:")
+        print(f"   - Raw rate (vs total CSV): {real_success_rate:.2%}")
+        print(f"   - Adjusted rate (vs valid texts): {adjusted_success_rate:.2%}")
         print("="*40)
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
+"""Pydantic schema for the Auditor agent structured output."""
+
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List, Literal
+from typing import Optional
 
 class AuditorOutput(BaseModel):    
     """
@@ -16,7 +18,10 @@ class AuditorOutput(BaseModel):
     
     clinical_risk_category: str = Field(
         ...,
-        description="Standardized risk category: 'Low Risk', 'Medium Risk / Monitor', 'High Risk / Emergency', or 'Critical / Resuscitation'."
+        description="""
+            Standardized risk category: 'Low Risk', 'Medium Risk / Monitor',
+            'High Risk / Emergency', or 'Critical / Resuscitation'.
+        """
     )
 
     @field_validator("clinical_risk_category")
@@ -45,7 +50,10 @@ class AuditorOutput(BaseModel):
     
     evidence_quote: str = Field(
         ...,
-        description="Direct and exact citation of the text retrieved by RAG that justifies the suggested conduct."
+        description="""
+            Direct and exact citation of the text retrieved by RAG that
+            justifies the suggested conduct.
+        """
     )
     
     clinical_suggestion: str = Field(
@@ -60,5 +68,8 @@ class AuditorOutput(BaseModel):
 
     missing_info_warning: Optional[str] = Field(
         None,
-        description="Warning about crucial data that were absent on original inputl (e.g.: 'Lactate not reported.')."
+        description="""
+            Warning about crucial data that were absent on original input 
+            (e.g.: 'Lactate not reported.').
+        """
     )

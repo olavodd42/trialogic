@@ -1,7 +1,13 @@
+"""Deterministic clinical-score calculator (NEWS2 and MEWS).
+
+Provides hard-coded scoring logic to guarantee mathematical precision
+where LLMs might hallucinate or miscalculate.
+"""
+
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel
-from src.schemas.scribe_schema import VitalsSchema
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +24,9 @@ class ScoreBreakdown(BaseModel):
 class ClinicalCalculator:
     """
     Deterministic tool for clinical score calculation.
-    Implments 'Hard-Coded' logic to ensure mathematical precision where LLMs might fail.
+
+    Implements hard-coded logic to ensure mathematical precision where
+    LLMs might fail.
     """
 
     @staticmethod
@@ -121,9 +129,9 @@ class ClinicalCalculator:
         breakdown['consciousness'] = s
 
         if not missing_data:
-            logger.info(f"NEWS2 score calculated succesfully: {score}")
+            logger.info("NEWS2 score calculated successfully: %s", score)
         else:
-            logger.warning(f"Missing data: {missing_data}")
+            logger.warning("Missing data: %s", missing_data)
 
         return {
             "score": score,
@@ -134,6 +142,14 @@ class ClinicalCalculator:
 
     @staticmethod
     def calculate_mews(vitals: dict) -> dict:
+        """Calculate the MEWS (Modified Early Warning Score).
+
+        Args:
+            vitals: Dictionary containing normalised vital signs.
+
+        Returns:
+            Dictionary with score breakdown, total, risk level, and missing fields.
+        """
         logger.debug("Calculating MEWS score...")
         score = 0
         breakdown = {}
@@ -210,7 +226,7 @@ class ClinicalCalculator:
 
         score += s
         breakdown['avpu'] = s
-        logger.info(f"MEWS score calculated succesfully: {score}")
+        logger.info("MEWS score calculated successfully: %s", score)
 
         return {
             "score": score,
@@ -220,16 +236,23 @@ class ClinicalCalculator:
         }
 
 def calculate_clinical_score(vitals: dict, score_name: str) -> str:
+    """Entry-point used by the Mathematician agent to compute a clinical score.
 
-    """Entry point for the agent."""
+    Args:
+        vitals: Flat dictionary of normalised vital signs.
+        score_name: ``"NEWS"`` or ``"MEWS"``.
+
+    Returns:
+        Human-readable string summarising the calculation result.
+    """
     try:
         if score_name == "NEWS":
             result = ClinicalCalculator.calculate_news(vitals)
         elif score_name == "MEWS":
             result = ClinicalCalculator.calculate_mews(vitals)
         else:
-            logger.error("Non-supported score.")
-            return "ERRO: Non-supported score."
+            logger.error("Non-supported score: %s", score_name)
+            return "ERROR: Non-supported score."
 
         if isinstance(result, dict):
             total_score = result.get("score")
@@ -272,5 +295,5 @@ def calculate_clinical_score(vitals: dict, score_name: str) -> str:
         return output
 
     except Exception as e:
-        logger.error(f"Error calculating {score_name}: {e}")
+        logger.error("Error calculating %s: %s", score_name, e)
         return f"CRITICAL ERROR: {str(e)}"

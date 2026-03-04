@@ -1,27 +1,35 @@
+"""Mathematician agent for clinical risk score calculation and analysis.
+
+This module computes NEWS2 and MEWS scores from extracted vital signs,
+optionally using an LLM-based probabilistic path, and produces a
+structured risk analysis report.
+"""
+
 import os
 import re
-import logging
 import json
+import logging
 import traceback
-from typing import Dict, Any
-from langchain_ollama import ChatOllama
-from langchain_core.messages import SystemMessage, HumanMessage
+from typing import Any, Dict
+
 from dotenv import load_dotenv
+from langchain_ollama import ChatOllama
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from src.state.agent_state import AgentState
-from src.schemas.scribe_schema import VitalsSchema
 from src.tools.calculator import calculate_clinical_score
 from src.schemas.mathematician_schema import MathematicianSchema
 from src.utils.run_with_timeout import run_with_timeout
 
 load_dotenv()
 
-# Logger Configuration
+# Logger configuration
 logger = logging.getLogger(__name__)
 
 SEED = 42
 
-# 1. LLM Configuration
+# Default LLM configuration
 llm = ChatOllama(
     model="llama3.1",
     temperature=0,
@@ -30,18 +38,42 @@ llm = ChatOllama(
 )
 
 
-# Load Prompt
+# Load prompt
 prompt_path = os.path.join(os.getcwd(), "prompts", "mathematician_prompt.md")
 try:
     with open(prompt_path, "r", encoding="utf-8") as f:
         MATHEMATICIAN_SYSTEM_PROMPT = f.read()
 except FileNotFoundError:
-    logger.warning("Mathematician prompt not found. Using default.")
+    logger.warning("Mathematician prompt not found at %s. Using default.", prompt_path)
     MATHEMATICIAN_SYSTEM_PROMPT = "You are a clinical mathematician agent."
 
 
 class MathematicianAgent:
-    def __init__(self, model, use_probabilistic: bool = False):
+    def __init__(self, model: BaseChatModel, use_probabilistic: bool = False):
+        """
+        Initialize the MathematicianAgent.
+
+        Parameters
+        ----------
+        model :
+            A chat/LLM model instance (for example, a `ChatOllama` model) that supports
+            the LangChain-style methods ``with_structured_output`` and ``bind``. This
+            model is used both for structured extraction into ``MathematicianSchema``
+            and, when enabled, for probabilistic NEWS/MEWS scoring.
+        use_probabilistic : bool, optional
+            If ``True``, enable the probabilistic LLM-based path for calculating
+            NEWS/MEWS scores in addition to the deterministic calculator. Defaults
+            to ``False``.
+
+        Environment variables
+        ---------------------
+        MATHEMATICIAN_PROBABILISTIC :
+            When set to a truthy value (``"1"``, ``"true"``, or ``"yes"``, case-insensitive),
+            probabilistic mode is enabled regardless of the value passed for
+            ``use_probabilistic``. The internal ``self.use_probabilistic`` flag is
+            set to ``use_probabilistic or env_flag`` where ``env_flag`` reflects this
+            environment variable.
+        """
         # Structured model for final analysis
         self.model = model.with_structured_output(MathematicianSchema)
         # Raw model (no structured) for optional probabilistic calc
@@ -122,25 +154,29 @@ class MathematicianAgent:
             "MEWS": {"score": 3, "risk_level": "Monitor", "missing_fields": [], "assumptions": []}
         }, indent=2)
 
-        prompt = f"""You are a clinical calculator. Compute NEWS2 and MEWS scores from the vital signs below.
-Use the official NEWS2 and MEWS scoring tables. Do NOT invent or assume vitals that are not provided.
-If a vital sign is missing (null), assign 0 points for that parameter, list it in "missing_fields", and note the assumption.
+        prompt = f"""
+        You are a clinical calculator. Compute NEWS2 and MEWS scores from the vital signs below.
+        Use the official NEWS2 and MEWS scoring tables. Do NOT invent or assume vitals that are not provided.
+        If a vital sign is missing (null), assign 0 points for that parameter, list it in "missing_fields", and note the assumption.
 
-Return ONLY valid JSON in this exact format (no extra text):
-{example}
+        Return ONLY valid JSON in this exact format (no extra text):
+        {example}
 
-Rules:
-- "score" must be an integer (the total score), or null if ALL vitals are missing.
-- "risk_level" for NEWS: "Low" (0-4), "Medium" (5-6), "High" (>=7).
-- "risk_level" for MEWS: "Monitor" (<5), "Critical" (>=5).
-- "missing_fields": list of vital sign names that were null/missing.
-- "assumptions": list of assumptions made (e.g., "supplemental_oxygen assumed false").
+        Rules:
+        - "score" must be an integer (the total score), or null if ALL vitals are missing.
+        - "risk_level" for NEWS: "Low" (0-4), "Medium" (5-6), "High" (>=7).
+        - "risk_level" for MEWS: "Monitor" (<5), "Critical" (>=5).
+        - "missing_fields": list of vital sign names that were null/missing.
+        - "assumptions": list of assumptions made (e.g., "supplemental_oxygen assumed false").
 
-VITALS: {json.dumps(vitals_dict, default=str)}
+        VITALS: {json.dumps(vitals_dict, default=str)}
 
-Respond with JSON only."""
+        Respond with JSON only.
+        """
 
-        system_msg = "You are a precise clinical scoring calculator. You MUST respond with valid JSON only, no explanations."
+        system_msg = """
+        You are a precise clinical scoring calculator. You MUST respond
+        with valid JSON only, no explanations."""
 
         last_parsed_data = {}
 
@@ -181,17 +217,28 @@ Respond with JSON only."""
                         # Ensure both keys exist with proper structure
                         for s in ("NEWS", "MEWS"):
                             if s not in data or not isinstance(data.get(s), dict):
-                                data[s] = {"score": None, "risk_level": "Unknown", "missing_fields": [], "assumptions": ["llm_did_not_compute"]}
-                        logger.info(f"LLM scoring succeeded (attempt {attempt+1}): NEWS={data.get('NEWS',{}).get('score')}, MEWS={data.get('MEWS',{}).get('score')}")
+                                data[s] = {
+                                    "score": None,
+                                    "risk_level": "Unknown",
+                                    "missing_fields": [],
+                                    "assumptions": ["llm_did_not_compute"]
+                                }
+
+                        logger.info(
+                            "LLM scoring succeeded (attempt %d): NEWS=%s, MEWS=%s",
+                            attempt + 1,
+                            data.get('NEWS', {}).get('score'),
+                            data.get('MEWS', {}).get('score'),
+                        )
                         return data
                     else:
-                        logger.warning(f"LLM attempt {attempt+1}: parsed dict but all scores are None.")
+                        logger.warning("LLM attempt %d: parsed dict but all scores are None.", attempt + 1)
                 else:
-                    logger.warning(f"LLM attempt {attempt+1}: could not extract valid JSON from response.")
-                    logger.debug(f"LLM raw output: {content[:500]}")
+                    logger.warning("LLM attempt %d: could not extract valid JSON from response.", attempt + 1)
+                    logger.debug("LLM raw output: %s", content[:500])
 
             except Exception as e:
-                logger.warning(f"LLM scoring attempt {attempt+1} error: {e}")
+                logger.warning("LLM scoring attempt %d error: %s", attempt + 1, e)
 
         # All attempts failed — return whatever we last parsed (may have null scores)
         logger.warning("All LLM scoring attempts failed. Returning best-effort result (scores may be null).")
@@ -201,8 +248,18 @@ Respond with JSON only."""
                     last_parsed_data[s] = {"score": None, "risk_level": "Unknown", "missing_fields": [], "assumptions": ["llm_all_attempts_failed"]}
             return last_parsed_data
         return {
-            "NEWS": {"score": None, "risk_level": "Unknown", "missing_fields": [], "assumptions": ["llm_all_attempts_failed"]},
-            "MEWS": {"score": None, "risk_level": "Unknown", "missing_fields": [], "assumptions": ["llm_all_attempts_failed"]}
+            "NEWS": {
+                "score": None,
+                "risk_level": "Unknown",
+                "missing_fields": [],
+                "assumptions": ["llm_all_attempts_failed"]
+            },
+            "MEWS": {
+                "score": None,
+                "risk_level": "Unknown",
+                "missing_fields": [],
+                "assumptions": ["llm_all_attempts_failed"]
+            }
         }
 
     def process(self, state: AgentState) -> Dict[str, Any]:
@@ -225,11 +282,11 @@ Respond with JSON only."""
                 - 'risk_analysis': A detailed structured analysis including numeric scores, data quality notes, and risk synthesis.
                 - In case of error: Returns an error message in 'risk_score_report'.
         """
-        logger.info("\n--- 🧮 NODE: MATHEMATICIAN ---")
+        logger.info("--- NODE: MATHEMATICIAN ---")
         # 1. Retrieve vitals with fallback logic
 
         extracted_data = state.get("extracted_data")
-        logger.debug(f"INPUT: {extracted_data}")
+        logger.debug("INPUT: %s", extracted_data)
         if not extracted_data:
             logger.warning("No extracted data found. Skipping calculation.")
             return {"risk_score": None}
@@ -288,12 +345,12 @@ Respond with JSON only."""
                                 raw_scores[score] = float(num_part.strip())
                         except Exception:
                             pass
-                        logger.info(f"🧮 {score} Score Calculated: {results[score]}")
+                        logger.info("%s score calculated: %s", score, results[score])
                     except Exception as e:
-                        logger.error(f"Calculation Error {score}: {e}")
+                        logger.error("Calculation error for %s: %s", score, e)
                         results[score] = f"Error calculating {score}: {str(e)}"
 
-            # 3. Model Invocation for Interpretation (NLU)
+            # 3. Model invocation for interpretation (NLU)
             vitals_json = json.dumps(vitals_dict, default=str)
             calc_payload = results if self.use_probabilistic else json.dumps(results, indent=2)
             context_msg = f"""
@@ -318,7 +375,7 @@ Respond with JSON only."""
             ]
             
             # 4. Risk analysis by LLM
-            logger.debug("⏳ Calling LLM for Risk Analysis...")
+            logger.debug("Calling LLM for risk analysis...")
             response = run_with_timeout(self.model.invoke, messages, timeout=180, retries=2)
 
             if hasattr(response, "model_dump"):
@@ -330,7 +387,7 @@ Respond with JSON only."""
                 
             result_data["calculated_raw"] = raw_scores or results
 
-            logging.info(f"✅ Mathematician Complete: {simple_report}")
+            logging.info("Mathematician complete: %s", simple_report)
             
             return {
                 "extracted_data": extracted_data,
@@ -339,6 +396,6 @@ Respond with JSON only."""
             }
 
         except Exception as e:
-            logger.error(f"❌ Mathematician Critical Error: {e}")
+            logger.error("Mathematician critical error: %s", e)
             traceback.print_exc()
             return {"risk_score_report": f"Critical Error in Mathematician: {str(e)}"}

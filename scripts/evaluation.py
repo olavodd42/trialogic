@@ -20,6 +20,10 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import precision_score, recall_score, f1_score
 import time
+import matplotlib
+matplotlib.use('Agg')  # non-interactive backend (avoids errors on headless servers)
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # ----------------- Logging -----------------
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
@@ -452,8 +456,8 @@ def calculate_clinical_metrics_improved(merged_results: Dict[str,pd.DataFrame]) 
                 continue
             diff = (df.loc[mask, gt_col] - df.loc[mask, pred_col]).abs()
             within_tol = diff <= tol
-            # Trata "acerto dentro da tolerância" como classe positiva; não há classes preditas separadas.
-            # Portanto, precision = recall = taxa de acerto dentro da tolerância; F1 = mesmo valor.
+            # Treats "within tolerance" as the positive class; there are no separate predicted classes.
+            # Therefore, precision = recall = within-tolerance rate; F1 = same value.
             precision = recall = float(within_tol.mean()) if len(within_tol) else np.nan
             clin_f1 = precision
             halluc_rate, n_pred = _compute_hallucination_for_vital(df, pred_col, gt_col, tol)
@@ -631,7 +635,7 @@ def _generate_significance_report(records: List[Dict[str,Any]], out_dir: str = "
     df = pd.DataFrame(records)
     if df.empty:
         with open(fname, 'w', encoding='utf-8') as f:
-            f.write("Sem dados para intervalos de confiança.")
+            f.write("No data available for confidence intervals.")
         return fname
 
     # Drop NEWS helper rows for general metrics
@@ -716,7 +720,7 @@ def _generate_significance_report(records: List[Dict[str,Any]], out_dir: str = "
     with open(fname, 'w', encoding='utf-8') as f:
         f.write("# Significance & Confidence Intervals\n\n")
         if not ci_table.empty:
-            f.write("## Bootstrap 95% CI (2k amostras)\n\n")
+            f.write("## Bootstrap 95% CI (2k samples)\n\n")
             f.write(ci_table.round(3).to_markdown(index=False))
             f.write("\n\n")
         if paired_rows:
@@ -724,7 +728,7 @@ def _generate_significance_report(records: List[Dict[str,Any]], out_dir: str = "
             f.write(pd.DataFrame(paired_rows).round(4).to_markdown(index=False))
             f.write("\n")
         else:
-            f.write("Sem pares suficientes para McNemar.\n")
+            f.write("Insufficient pairs for McNemar.\n")
 
     # print to terminal
     print("\n=== Significance (bootstrap CI + McNemar) ===")
@@ -748,7 +752,7 @@ def export_pretty_tables(metrics_df: pd.DataFrame, merged_results: Dict[str,pd.D
 
     fallback_compact = None
     if metrics_df.empty:
-        logger.warning("metrics_df vazio — usando fallback compacto direto de merged_results.")
+        logger.warning("metrics_df is empty -- using compact fallback directly from merged_results.")
         fallback_compact = build_compact_metrics_from_merged(merged_results)
         if not fallback_compact.empty:
             fallback_compact.to_csv(os.path.join(out_dir, "tcc_compact_fallback.csv"), index=False)
@@ -780,7 +784,7 @@ def export_pretty_tables(metrics_df: pd.DataFrame, merged_results: Dict[str,pd.D
         else:
             to_write.round(4).to_latex(tex_path, index=False, longtable=True, caption="TCC: Vital signs vs Clinical Scores", float_format="%.4f", na_rep="NA")
     except Exception as e:
-        logger.warning(f"Erro LaTeX: {e}")
+        logger.warning("LaTeX export error: %s", e)
 
     html_path = os.path.join(out_dir, "tcc_final_metrics.html")
     try:
@@ -796,7 +800,7 @@ def export_pretty_tables(metrics_df: pd.DataFrame, merged_results: Dict[str,pd.D
         else:
             pd.DataFrame().to_html(html_path)
     except Exception as e:
-        logger.warning(f"Erro HTML consolidado: {e}")
+        logger.warning("Consolidated HTML error: %s", e)
 
     md_path = os.path.join(out_dir, "tcc_final_metrics.md")
     try:
@@ -804,7 +808,7 @@ def export_pretty_tables(metrics_df: pd.DataFrame, merged_results: Dict[str,pd.D
             with open(md_path, 'w', encoding='utf-8') as f:
                 f.write(source_df.round(4).to_markdown(index=False))
     except Exception as e:
-        logger.warning(f"Erro Markdown: {e}")
+        logger.warning("Markdown export error: %s", e)
 
     summary_csv = os.path.join(out_dir, "tcc_metrics_summary.csv")
     try:
@@ -827,12 +831,12 @@ def export_pretty_tables(metrics_df: pd.DataFrame, merged_results: Dict[str,pd.D
                 logger.warning(f"Could not write per-system HTML for {system}: {e}")
 
     # Terminal output: compact summary + consolidated pivot print
-    print("\n=== Resumo agregado por Sistema (terminal) ===")
+    print("\n=== Aggregated summary by System (terminal) ===")
     if not summary_df.empty:
         print(summary_df.round(4).to_string(index=False))
     else:
-        print("Nenhum resumo agregado disponível (summary_df vazio).")
-        print("\n--- Diagnóstico rápido (merged_results) ---")
+        print("No aggregated summary available (summary_df is empty).")
+        print("\n--- Quick diagnostics (merged_results) ---")
         for system, df in merged_results.items():
             if system == '_rag_summary': continue
             print(f"System: {system} | rows: {len(df)} | cols: {len(df.columns)}")
@@ -844,7 +848,7 @@ def export_pretty_tables(metrics_df: pd.DataFrame, merged_results: Dict[str,pd.D
         combined = pd.concat([pivot_mae.add_suffix(" (MAE)"), pivot_h.add_suffix(" (Halluc)")], axis=1)
         combined = combined.reindex(sorted(combined.columns), axis=1)
 
-        # Versão compacta para terminal (colunas mais curtas, largura maior, 3 casas decimais)
+        # Compact version for terminal (shorter columns, wider display, 3 decimal places)
         short_map = {
             'Baseline (Zero-Shot)': 'B0',
             'Baseline (One-Shot)': 'B1',
@@ -862,10 +866,10 @@ def export_pretty_tables(metrics_df: pd.DataFrame, merged_results: Dict[str,pd.D
         combined_short = combined.copy()
         combined_short.columns = [_shorten(c) for c in combined_short.columns]
         with pd.option_context('display.width', 200, 'display.max_columns', None):
-            print("\n--- Tabela consolidada (MAE + Hallucination Rate) ---")
+            print("\n--- Consolidated table (MAE + Hallucination Rate) ---")
             print(combined_short.round(3).fillna("NA").to_string())
     else:
-        print("\n(sem tabela consolidada - sem dados)")
+        print("\n(no consolidated table - no data)")
 
     return {
         "csv": csv_path,
@@ -879,21 +883,21 @@ def export_pretty_tables(metrics_df: pd.DataFrame, merged_results: Dict[str,pd.D
 
 # ----------------- Article-ready summary -----------------
 def build_article_report(metrics_df: pd.DataFrame, exec_seconds: Optional[float] = None, app_seconds: Optional[float] = None, out_dir: str = "results") -> str:
-    """
-    Gera tabelas compactas (Markdown) com F1/Precision/Recall/MAE/Halluc para vitais
-    e Acc/Precision/Recall/MAE/Halluc para scores de risco, além do tempo de execução.
-    Retorna o caminho do arquivo gerado.
+    """Generate compact Markdown tables with F1/Precision/Recall/MAE/Halluc for vitals
+    and Acc/Precision/Recall/MAE/Halluc for risk scores, together with execution times.
+
+    Returns the path to the generated file.
     """
     os.makedirs(out_dir, exist_ok=True)
     fname = os.path.join(out_dir, "tcc_article_tables.md")
 
     if metrics_df.empty:
         with open(fname, 'w', encoding='utf-8') as f:
-            msg = "Nenhum dado disponível."
+            msg = "No data available."
             if exec_seconds is not None:
-                msg += " Tempo (avaliação): {:.2f}s.".format(exec_seconds)
+                msg += " Time (evaluation): {:.2f}s.".format(exec_seconds)
             if app_seconds is not None:
-                msg += " Tempo (TriaLogic): {:.2f}s.".format(app_seconds)
+                msg += " Time (TriaLogic): {:.2f}s.".format(app_seconds)
             f.write(msg)
         return fname
 
@@ -913,11 +917,11 @@ def build_article_report(metrics_df: pd.DataFrame, exec_seconds: Optional[float]
     scores_fmt = _fmt(scores)
 
     lines = []
-    lines.append("# Tabelas para artigo\n")
+    lines.append("# Tables for article\n")
     if exec_seconds is not None:
-        lines.append(f"Tempo (avaliação): {exec_seconds:.2f}s")
+        lines.append(f"Time (evaluation): {exec_seconds:.2f}s")
     if app_seconds is not None:
-        lines.append(f"Tempo (TriaLogic): {app_seconds:.2f}s")
+        lines.append(f"Time (TriaLogic): {app_seconds:.2f}s")
     lines.append("")
 
     if not vitals_fmt.empty:
@@ -925,27 +929,176 @@ def build_article_report(metrics_df: pd.DataFrame, exec_seconds: Optional[float]
         lines.append(vitals_fmt.to_markdown(index=False))
         lines.append("\n")
     if not scores_fmt.empty:
-        lines.append("## Scores de risco – Acc/Prec/Rec/MAE/Halluc\n")
+        lines.append("## Risk scores -- Acc/Prec/Rec/MAE/Halluc\n")
         lines.append(scores_fmt.to_markdown(index=False))
         lines.append("\n")
 
     with open(fname, 'w', encoding='utf-8') as f:
         f.write("\n".join(lines))
 
-    # Também imprimir versão enxuta no terminal
-    print("\n=== Formato artigo (resumo) ===")
+    # Also print concise version to terminal
+    print("\n=== Article format (summary) ===")
     if not vitals_fmt.empty:
         print("-- Vitals --")
         print(vitals_fmt.to_string(index=False))
     if not scores_fmt.empty:
-        print("\n-- Scores de risco --")
+        print("\n-- Risk scores --")
         print(scores_fmt.to_string(index=False))
     if exec_seconds is not None:
-        print(f"\nTempo (avaliação): {exec_seconds:.2f}s")
+        print(f"\nTime (evaluation): {exec_seconds:.2f}s")
     if app_seconds is not None:
-        print(f"Tempo (TriaLogic): {app_seconds:.2f}s")
+        print(f"Time (TriaLogic): {app_seconds:.2f}s")
 
     return fname
+
+# ----------------- chart generation -----------------
+def generate_comparison_charts(
+    metrics_df: pd.DataFrame,
+    merged_results: Dict[str, pd.DataFrame],
+    out_dir: str = "results",
+) -> List[str]:
+    """Generate comparative figures across the six configurations.
+
+    Produces:
+      1) Grouped bar -- Macro F1-Score per variable x system
+      2) Grouped bar -- Hallucination Rate per variable x system
+      3) Summary bar chart -- Macro F1 and Halluc Rate aggregated per system
+
+    Returns a list of paths to the generated PNG files.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    generated: List[str] = []
+
+    # --- Resolve data source ---
+    source_df = metrics_df if not metrics_df.empty else build_compact_metrics_from_merged(merged_results)
+    if source_df.empty:
+        logger.warning("No data available for chart generation.")
+        return generated
+
+    # Academic style
+    sns.set_theme(style="whitegrid", context="paper", font_scale=1.1)
+    plt.rcParams["font.family"] = "serif"
+
+    # Short names for legend (fits better in figures)
+    short_map = {
+        'Baseline (Zero-Shot)': 'B0 (Zero-Shot)',
+        'Baseline (One-Shot)': 'B1 (One-Shot)',
+        'No RAG': 'No RAG',
+        'TriaLogic (Agents)': 'TriaLogic',
+        'TriaLogic (No Validator)': 'TriaLogic (NV)',
+        'TriaLogic (Probabilistic)': 'TriaLogic (Prob)',
+    }
+    src = source_df.copy()
+    src['System_Short'] = src['System'].map(short_map).fillna(src['System'])
+
+    # Fixed system order (simplest to most complete)
+    sys_order = [
+        'B0 (Zero-Shot)', 'B1 (One-Shot)', 'No RAG',
+        'TriaLogic (NV)', 'TriaLogic (Prob)', 'TriaLogic',
+    ]
+    present_order = [s for s in sys_order if s in src['System_Short'].unique()]
+    palette = sns.color_palette("colorblind", n_colors=len(present_order))
+
+    # -------- Fig 1: Macro F1-Score (Clinical_Score) by variable --------
+    if 'Clinical_Score' in src.columns:
+        fig1, ax1 = plt.subplots(figsize=(10, 5))
+        sns.barplot(
+            data=src, x='Variable', y='Clinical_Score',
+            hue='System_Short', hue_order=present_order,
+            palette=palette, ax=ax1, edgecolor='0.3', linewidth=0.6,
+        )
+        ax1.set_xlabel('Clinical Variable')
+        ax1.set_ylabel('F1-Score / Accuracy')
+        ax1.set_title('Performance by Variable and Configuration')
+        ax1.set_ylim(0, 1.05)
+        ax1.legend(title='System', bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=8)
+        fig1.tight_layout()
+        path1 = os.path.join(out_dir, "fig_f1_by_variable.png")
+        fig1.savefig(path1, dpi=300, bbox_inches='tight')
+        plt.close(fig1)
+        generated.append(path1)
+        logger.info("Chart saved: %s", path1)
+
+    # -------- Fig 2: Hallucination Rate by variable --------
+        fig2, ax2 = plt.subplots(figsize=(10, 5))
+        sns.barplot(
+            data=src, x='Variable', y='Halluc_Rate',
+            hue='System_Short', hue_order=present_order,
+            palette=palette, ax=ax2, edgecolor='0.3', linewidth=0.6,
+        )
+        ax2.set_xlabel('Clinical Variable')
+        ax2.set_ylabel('Hallucination Rate')
+        ax2.set_title('Hallucination Rate by Variable and Configuration')
+        ax2.set_ylim(0, min(1.05, ax2.get_ylim()[1] * 1.15))
+        ax2.legend(title='System', bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=8)
+        fig2.tight_layout()
+        path2 = os.path.join(out_dir, "fig_halluc_by_variable.png")
+        fig2.savefig(path2, dpi=300, bbox_inches='tight')
+        plt.close(fig2)
+        generated.append(path2)
+        logger.info("Chart saved: %s", path2)
+
+    # -------- Fig 3: Aggregated summary (Macro F1 + Halluc Rate per system) --------
+    agg_rows = []
+    for system, g in src.groupby('System_Short'):
+        macro_f1 = g['Clinical_Score'].mean() if 'Clinical_Score' in g.columns else np.nan
+        total_samples = g['Samples'].sum() if 'Samples' in g.columns else 0
+        weighted_halluc = (
+            float((g['Halluc_Rate'] * g['Samples']).sum() / total_samples)
+            if total_samples > 0 else np.nan
+        )
+        agg_rows.append({'System': system, 'Macro F1': macro_f1, 'Halluc Rate': weighted_halluc})
+    agg_df = pd.DataFrame(agg_rows)
+    # Keep fixed order
+    agg_df['System'] = pd.Categorical(agg_df['System'], categories=present_order, ordered=True)
+    agg_df = agg_df.sort_values('System').reset_index(drop=True)
+
+    if not agg_df.empty:
+        fig3, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=False)
+
+        # 3a – Macro F1
+        bars1 = axes[0].bar(
+            agg_df['System'], agg_df['Macro F1'],
+            color=palette[:len(agg_df)], edgecolor='0.3', linewidth=0.6,
+        )
+        axes[0].set_ylabel('Macro F1-Score')
+        axes[0].set_title('Aggregated Macro F1-Score')
+        axes[0].set_ylim(0, 1.05)
+        axes[0].tick_params(axis='x', rotation=30)
+        # Numeric label above each bar
+        for bar, val in zip(bars1, agg_df['Macro F1']):
+            if pd.notna(val):
+                axes[0].text(
+                    bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.015,
+                    f"{val:.3f}", ha='center', va='bottom', fontsize=8,
+                )
+
+        # 3b – Halluc Rate
+        bars2 = axes[1].bar(
+            agg_df['System'], agg_df['Halluc Rate'],
+            color=palette[:len(agg_df)], edgecolor='0.3', linewidth=0.6,
+        )
+        axes[1].set_ylabel('Hallucination Rate (weighted)')
+        axes[1].set_title('Aggregated Hallucination Rate')
+        axes[1].set_ylim(0, min(1.05, agg_df['Halluc Rate'].max() * 1.3 if agg_df['Halluc Rate'].max() > 0 else 0.1))
+        axes[1].tick_params(axis='x', rotation=30)
+        for bar, val in zip(bars2, agg_df['Halluc Rate']):
+            if pd.notna(val):
+                axes[1].text(
+                    bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005,
+                    f"{val:.3f}", ha='center', va='bottom', fontsize=8,
+                )
+
+        fig3.suptitle('Aggregated Comparison across Configurations', fontsize=13, y=1.02)
+        fig3.tight_layout()
+        path3 = os.path.join(out_dir, "fig_summary_comparison.png")
+        fig3.savefig(path3, dpi=300, bbox_inches='tight')
+        plt.close(fig3)
+        generated.append(path3)
+        logger.info("Chart saved: %s", path3)
+
+    return generated
+
 
 # ----------------- ENTRYPOINT -----------------
 if __name__ == "__main__":
@@ -985,10 +1138,15 @@ if __name__ == "__main__":
         try:
             app_seconds = float(env_runtime)
         except ValueError:
-            logger.warning("TRIALOGIC_RUNTIME_SECONDS não pôde ser convertido para float.")
+            logger.warning("TRIALOGIC_RUNTIME_SECONDS could not be converted to float.")
 
     article_path = build_article_report(metrics_df, exec_seconds=exec_seconds, app_seconds=app_seconds, out_dir=os.path.join(BASE_DIR, "results"))
     signif_path = _generate_significance_report(sample_records, out_dir=os.path.join(BASE_DIR, "results"))
+
+    # --- Comparative charts ---
+    chart_paths = generate_comparison_charts(metrics_df, merged_results=merged, out_dir=os.path.join(BASE_DIR, "results"))
+    for cp in chart_paths:
+        logger.info(f" - chart: {cp}")
 
     logger.info("Exports written:")
     for k,v in exports.items():
@@ -1006,4 +1164,4 @@ if __name__ == "__main__":
             mews_ext = s.get('mews_extracted', '?')
             print(f"{k}: joined={s['joined_rows']}, preds={s['pred_rows']}, rag_true={s['rag_true']} ({s['rag_pct']:.2%}), NEWS_extracted={news_ext}/{s['pred_rows']}, MEWS_extracted={mews_ext}/{s['pred_rows']}")
 
-    print("\n✅ Avaliação concluída. Verifique 'results/' e 'results/per_system/' para as tabelas coloridas.")
+    print("\nEvaluation complete. Check 'results/' and 'results/per_system/' for the coloured tables.")

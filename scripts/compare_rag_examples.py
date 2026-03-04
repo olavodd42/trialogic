@@ -1,3 +1,5 @@
+"""Display side-by-side examples of RAG vs No-RAG auditor outputs."""
+
 import json
 
 ta = {}

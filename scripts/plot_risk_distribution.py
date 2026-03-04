@@ -1,42 +1,45 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+"""Generate a comparative KDE plot of predicted NEWS2 score distributions."""
+
 import json
 import os
 import re
 
-# Configuração Visual para Artigo (Fundo branco, fontes serifadas se possível)
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+
+# Visual configuration for academic publication (white bg, serif font)
 sns.set_theme(style="whitegrid", context="paper")
 plt.rcParams["font.family"] = "serif"
 
 def extract_score(text_or_dict):
     """
-    Tenta extrair o NEWS Score de diferentes formatos de output (JSON ou String bruta).
+    Extract the NEWS Score from various output formats (JSON or raw string).
     """
     if isinstance(text_or_dict, dict):
-        # Tenta pegar campos estruturados
+        # Try structured fields first
         if "risk_score" in text_or_dict:
             val = text_or_dict["risk_score"]
         elif "news_score" in text_or_dict:
             val = text_or_dict["news_score"]
         else:
-            # Se for dicionário mas sem campo óbvio, converte para string e busca regex
+            # Dict without obvious field — convert to string and try regex
             val = str(text_or_dict)
     else:
         val = str(text_or_dict)
     
-    # Regex robusto para achar números inteiros associados a score
-    # Procura por "NEWS: 3", "Score: 3", ou apenas o número solto se for campo limpo
+    # Robust regex to find integers associated with a score
+    # Matches "NEWS: 3", "Score: 3", or a clean standalone number
     match = re.search(r'(?:NEWS2?|Score|Total)?\W*(\d+)', str(val), re.IGNORECASE)
     if match:
         return int(match.group(1))
-    return 0 # Default conservador para falha de parsing (assume normalidade)
+    return 0  # Conservative default for parsing failure (assume normal)
 
 def load_scores(file_path, label):
-    """Carrega scores de um arquivo JSONL."""
+    """Load scores from a JSONL file."""
     scores = []
     if not os.path.exists(file_path):
-        print(f"⚠️ Arquivo não encontrado: {file_path}")
+        print(f"Warning: File not found: {file_path}")
         return pd.DataFrame()
     
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -51,7 +54,7 @@ def load_scores(file_path, label):
                 raw_content = data.get("response", data.get("risk_score", ""))
                 score = extract_score(raw_content)
                 
-                # Filtrar alucinações extremas (ex: Score 50 não existe, max é ~20)
+                # Filter extreme hallucinations (e.g. Score 50 doesn't exist, max is ~20)
                 if 0 <= score <= 25:
                     scores.append(score)
             except:
@@ -60,26 +63,26 @@ def load_scores(file_path, label):
     return pd.DataFrame({"Score": scores, "System": label})
 
 def plot_comparison():
-    print("📊 Gerando Gráfico Comparativo de Distribuição de Risco...")
+    print("Generating comparative risk distribution chart...")
     
-    # Caminhos baseados no seu log anterior
+    # Paths based on previous logs
     path_baseline = "results/baseline_results.jsonl"
-    path_trialogic = "results/experiment_results_v1.jsonl" # Full Agents
+    path_trialogic = "results/experiment_results_v1.jsonl"  # Full Agents
     
     df_baseline = load_scores(path_baseline, "Baseline (Zero-Shot)")
     df_trialogic = load_scores(path_trialogic, "TriaLogic (Agents)")
     
     if df_baseline.empty or df_trialogic.empty:
-        print("❌ Erro: Não foi possível carregar dados suficientes para comparação.")
+        print("Error: Could not load sufficient data for comparison.")
         return
 
-    # Combinar DataFrames
+    # Combine DataFrames
     df_final = pd.concat([df_baseline, df_trialogic])
     
     plt.figure(figsize=(10, 6))
     
-    # Plot KDE (Kernel Density Estimate) - Mostra a "forma" da distribuição suave
-    # cut=0 garante que o gráfico não desenhe abaixo de 0
+    # Plot KDE (Kernel Density Estimate) - Shows the smooth distribution shape
+    # cut=0 ensures the chart does not draw below 0
     sns.kdeplot(
         data=df_final, 
         x="Score", 
@@ -91,15 +94,15 @@ def plot_comparison():
         cut=0
     )
     
-    # Alternativa: Histograma sobreposto (descomente se preferir barras)
+    # Alternative: overlapping histogram (uncomment if you prefer bars)
     # sns.histplot(data=df_final, x="Score", hue="System", element="step", stat="density", common_norm=False)
 
     plt.title("Distribution of Predicted NEWS2 Scores: Hallucination vs. Safety", fontsize=14, fontweight='bold')
     plt.xlabel("NEWS2 Score Value")
     plt.ylabel("Density (Frequency)")
-    plt.xlim(0, 15) # Foca na região relevante (scores reais)
+    plt.xlim(0, 15)  # Focus on the relevant region (realistic scores)
     
-    # Adicionar anotação explicativa (O "Pulo do Gato" Acadêmico)
+    # Add explanatory annotations (academic figure style)
     plt.annotate('Baseline "Spread"\n(Uncertainty/Hallucination)', 
                  xy=(5, 0.05), xytext=(8, 0.15),
                  arrowprops=dict(facecolor='black', shrink=0.05, alpha=0.5))
@@ -110,10 +113,10 @@ def plot_comparison():
 
     output_file = "results/chart_comparative_distribution.png"
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"✅ Gráfico salvo em: {output_file}")
-    print("\nINTERPRETAÇÃO PARA O ARTIGO:")
-    print("1. O pico alto do TriaLogic em 0 mostra que ele adota 'Default-to-Safety'.")
-    print("2. A cauda longa/gorda do Baseline mostra que ele inventa riscos intermediários sem evidência.")
+    print(f"Chart saved to: {output_file}")
+    print("\nINTERPRETATION FOR ARTICLE:")
+    print("1. TriaLogic's high peak at 0 shows it adopts a 'Default-to-Safety' strategy.")
+    print("2. The Baseline's long/fat tail shows it invents intermediate risks without evidence.")
 
 if __name__ == "__main__":
     plot_comparison()

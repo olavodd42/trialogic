@@ -14,3 +14,5 @@ chromadb
 pypdf
 sentence-transformers
 tabulate
+matplotlib
+seaborn

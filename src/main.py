@@ -12,6 +12,11 @@ Feature flags:
     use_probabilistic (bool): If True, Mathematician uses LLM-based scoring; if False, deterministic calculator.
 """
 import os
+import time
+import logging
+from typing import Any, Callable, Dict
+
+from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
 from langchain_ollama import ChatOllama
 
@@ -22,8 +27,6 @@ from src.agents.validator import validator_node, validator_router
 from src.agents.mathematician import MathematicianAgent
 from src.agents.clinical_rag import clinical_rag_node
 from src.agents.synthesizer import synthesizer_node
-from dotenv import load_dotenv
-import logging
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -71,10 +74,9 @@ def create_workflow(
     workflow = StateGraph(AgentState)
 
     # --- NODES ---
-    import time
-
-    def timed_node(name, func):
-        def wrapper(state):
+    def timed_node(name: str, func: Callable) -> Callable:
+        """Wrap a node function to record its wall-clock execution time."""
+        def wrapper(state: AgentState) -> Dict[str, Any]:
             start = time.time()
             result = func(state)
             elapsed = time.time() - start
@@ -166,14 +168,15 @@ def create_workflow(
     compiled = workflow.compile()
 
     # Helper to extract per-node timings from final state
-    def get_timings(final_state):
+    def get_timings(final_state: Dict[str, Any]) -> Dict[str, float]:
+        """Extract per-node timing information from the final agent state."""
         if isinstance(final_state, dict):
             timings = final_state.get("_timings", {})
         else:
             timings = getattr(final_state, "_timings", {})
         if timings:
             logger.info(
-                "Tempo por agente neste caso: "
+                "Per-agent timing for this case: "
                 + ", ".join(f"{k}: {v:.2f}s" for k, v in timings.items())
             )
         return timings

@@ -1,15 +1,17 @@
+"""Document ingestion pipeline for the ChromaDB vector store."""
+
+import logging
 import os
 
+from dotenv import load_dotenv
+from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
-from dotenv import load_dotenv
-import logging
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# Configuração de Diretório
+# Directory configuration
 PERSIST_DIRECTORY = os.path.join(os.getcwd(), "chroma_db")
 
 def ingest_document(filepath: str, category: str, source_type: str):
@@ -28,7 +30,7 @@ def ingest_document(filepath: str, category: str, source_type: str):
     Returns:
         None
     """
-    logger.debug(f"📚 Ingesting: {filepath}...")
+    logger.debug("Ingesting: %s ...", filepath)
 
     # 1. Detecting loading type
     if filepath.endswith(".pdf"):
@@ -36,21 +38,20 @@ def ingest_document(filepath: str, category: str, source_type: str):
     elif filepath.endswith(".txt"):
         loader = TextLoader(filepath, encoding="utf-8")
     else:
-        logger.error(f"❌ Format not supported: {filepath}")
+        logger.error("Format not supported: %s", filepath)
         return
 
     # 2. Loading
     try:
         docs = loader.load()
     except Exception as e:
-        logger.error(f"❌ Erro ao ler arquivo: {e}")
+        logger.error("Error reading file: %s", e)
         return
 
     # 3.Metadata
     for doc in docs:
         doc.metadata["category"] = category
         doc.metadata["source_type"] = source_type
-        # Se for o definitions.txt, damos um boost artificial na relevância via metadado (opcional)
         if "definitions.txt" in filepath:
             doc.metadata["priority"] = "high"
 
@@ -74,4 +75,4 @@ def ingest_document(filepath: str, category: str, source_type: str):
         persist_directory=PERSIST_DIRECTORY
     )
     
-    logger.info(f"✅ Success! {len(splits)} chunks of '{category}' indexed.")
+    logger.info("Success! %d chunks of '%s' indexed.", len(splits), category)

@@ -1,27 +1,28 @@
 # TriaLogic 🏥🤖
 
-**TriaLogic** é um **Sistema de Workflow com Agentes** avançado projetado para análise automatizada de dados clínicos. Utiliza uma arquitetura multi-agente para extrair informações estruturadas de registros médicos não estruturados (ex: sumários de alta), validar os dados, calcular escores de risco clínico, e realizar auditorias contra diretrizes médicas padrão-ouro usando Retrieval-Augmented Generation (RAG).
+**TriaLogic** é um framework multi-agente para triagem clínica automatizada, desenvolvido como Trabalho de Conclusão de Curso. Utiliza uma arquitetura *Agentic Workflow* orquestrada por **LangGraph** para extrair sinais vitais de notas clínicas não estruturadas (MIMIC-IV-Notes), validar os dados fisiologicamente, calcular escores de risco (NEWS2 e MEWS), e produzir recomendações clínicas ancoradas em evidências via Retrieval-Augmented Generation (RAG) — tudo executado localmente com **LLaMA 3.1 8B** via **Ollama**, sem dependência de APIs externas.
 
 ## 🚀 Características Principais
 
-*   **Orquestração Multi-Agente**: Powered by **LangGraph**, utilizando um agente Supervisor para gerenciar estado e rotear tarefas eficientemente.
-*   **Extração Clínica (Scribe)**: Transforma texto clínico não estruturado em formatos de dados estruturados com foco em sinais vitais e parâmetros fisiológicos.
-*   **Auto-Correção (Validator)**: Valida dados extraídos e retorna ao agente Scribe para correções se erros forem detectados.
-*   **Análise de Risco (Mathematician)**: Realiza cálculos determinísticos de escores clínicos (NEWS2, MEWS, qSOFA) baseados em parâmetros clínicos validados.
-*   **Auditoria Baseada em Evidências (Clinical RAG)**: Recupera diretrizes clínicas relevantes de um banco vetorial ChromaDB para auditar casos e fornecer recomendações baseadas em protocolos estabelecidos.
-*   **Processamento em Lote**: Capaz de processar grandes conjuntos de dados de registros clínicos de forma eficiente com medição de latência.
+*   **Orquestração Multi-Agente**: Powered by **LangGraph**, com um Supervisor que gerencia estado compartilhado e roteia tarefas condicionalmente.
+*   **Extração Clínica (Scribe)**: Transforma texto clínico não estruturado em dados estruturados via esquemas Pydantic (SBP, DBP, HR, RR, SpO₂, Temperatura, ACVPU).
+*   **Validação Fisiológica (Validator)**: Verifica plausibilidade fisiológica com regras determinísticas, conversão automática Fahrenheit→Celsius e loop de retry (até 3 tentativas).
+*   **Análise de Risco (Mathematician)**: Calcula escores NEWS2 e MEWS usando *tool calling* determinístico (padrão) ou LLM-based probabilístico (configurável).
+*   **Recuperação de Evidências (Clinical RAG)**: Recupera diretrizes clínicas (Sepsis-3, NEWS2, MEWS, protocolos de trauma/cardiologia/pneumologia) de um banco vetorial ChromaDB.
+*   **Síntese e Auditoria (Synthesizer)**: Produz relatório final com verificação de fidelidade de citação (*quote fidelity check*) como mecanismo anti-alucinação.
+*   **Processamento em Lote**: Processamento de datasets completos com retomada automática, medição de latência por caso e relatório estatístico.
 
 ## 🏗️ Arquitetura
 
-O sistema segue um workflow de grafo dirigido gerenciado por um nó Supervisor:
+O sistema segue um workflow de grafo dirigido com roteamento condicional:
 
-1.  **Input**: Texto clínico (notas de internação/alta hospitalar).
-2.  **Supervisor**: Determina o próximo passo baseado no estado atual do processamento.
-3.  **Scribe Agent**: Extrai entidades-chave (sinais vitais: pressão arterial, frequência cardíaca, frequência respiratória, saturação de oxigênio, temperatura).
-4.  **Validator Node**: Verifica integridade e consistência dos dados com loop de retry automático.
-5.  **Mathematician Agent**: Computa escores de risco clínico (NEWS2, MEWS) usando cálculos determinísticos e probabilísticos.
-6.  **Clinical RAG (Auditor) Agent**: Recupera casos "Padrão-Ouro" similares e diretrizes clínicas (Sepsis-3, qSOFA, SIRS) para sintetizar um relatório de auditoria final.
-7.  **Synthesizer**: Compila a saída final com base no contexto recuperado e validações de segurança.
+1.  **Input**: Nota clínica não estruturada (sumário de alta do MIMIC-IV-Notes).
+2.  **Supervisor (Planning + Router)**: Planeja a sequência de agentes e roteia condicionalmente com base no estado.
+3.  **Scribe Agent**: Extrai sinais vitais em formato estruturado (Pydantic `ClinicalSchema`).
+4.  **Validator Node**: Verifica ranges fisiológicos, converte unidades e realiza *scrubbing* de valores inválidos.
+5.  **Mathematician Agent**: Computa NEWS2 e MEWS via *tool calling* determinístico (`calculate_clinical_score`).
+6.  **Clinical RAG Agent**: Recupera diretrizes clínicas relevantes do banco vetorial ChromaDB.
+7.  **Synthesizer Agent**: Sintetiza relatório de auditoria final com extração de evidências e verificação de fidelidade.
 
 ```mermaid
 stateDiagram-v2
@@ -109,38 +110,70 @@ stateDiagram-v2
 
 ```text
 TriaLogic/
-├── chroma_db/              # Banco de dados vetorial (ChromaDB) para RAG
-├── data/                   # Datasets de entrada e padrões-ouro
-│   ├── discharge.csv       # Dados originais de alta hospitalar  
-│   ├── gold_standard_dataset.csv  # Dataset validado para avaliação
-│   └── master_dataset.csv  # Dataset principal consolidado
-├── docs/                   # Documentação técnica
-│   └── definitions.txt     # Definições clínicas (NEWS2, MEWS, Sepsis-3)
-├── prompts/                # Prompts de sistema para cada agente
-│   ├── scribe_prompt.md    # Prompt para extração de sinais vitais
-│   ├── auditor_prompt.md   # Prompt para auditoria clínica
-│   └── mathematician_prompt.md  # Prompt para cálculos de risco
-├── results/                # Arquivos de saída e logs de experimentos
-│   ├── *_experiment_results_v*.jsonl  # Resultados experimentais
-│   ├── tcc_final_metrics.csv  # Métricas finais de avaliação
-│   └── per_system/         # Relatórios por sistema avaliado
-├── scripts/                # Scripts utilitários
-│   ├── run_batch_processing.py  # Processamento em lote principal
-│   ├── run_baseline.py     # Execução de baseline zero-shot
-│   ├── evaluation.py       # Sistema de avaliação e métricas
-│   └── ingest_knowledge.py # Ingestão de conhecimento para RAG
-├── src/                    # Código-fonte principal
-│   ├── agents/             # Implementação dos nós agente
-│   │   ├── scribe.py       # Agente de extração clínica
-│   │   ├── validator.py    # Nó de validação com retry loop
-│   │   ├── mathematician.py # Agente de cálculo de escores
-│   │   ├── clinical_rag.py # Agente RAG para auditoria
-│   │   └── supervisor.py   # Roteador/supervisor do workflow
-│   ├── schemas/            # Modelos Pydantic para saída estruturada
-│   ├── state/              # Definições de estado do LangGraph
-│   ├── tools/              # Ferramentas auxiliares (calculadora)
-│   └── main.py             # Definição e compilação do grafo
-└── requirements.txt        # Dependências do projeto
+├── chroma_db/                  # Banco de dados vetorial (ChromaDB) para RAG
+├── data/                       # Datasets
+│   ├── discharge.csv           # Notas de alta originais (MIMIC-IV-Notes)
+│   ├── discharge_filtered.csv  # Notas filtradas por coorte
+│   ├── gold_standard_dataset.csv  # Dataset de avaliação (240 casos)
+│   ├── ground_truth.csv        # Ground truth com sinais vitais anotados (154 hadm_ids)
+│   ├── master_dataset.csv      # Dataset consolidado
+│   └── validation_notes.csv    # Notas para validação
+├── docs/                       # Diretrizes clínicas para RAG
+│   ├── definitions.txt         # Definições clínicas (NEWS2, MEWS)
+│   ├── Sepsis-3.pdf            # Protocolo Sepsis-3
+│   ├── NEWS2_Chart.pdf         # Tabela NEWS2
+│   ├── Cardio.pdf / ChestPain.pdf / Trauma.pdf / ...  # Protocolos clínicos
+│   └── ...
+├── prompts/                    # Prompts de sistema para cada agente
+│   ├── scribe_prompt.md        # Extração de sinais vitais
+│   ├── mathematician_prompt.md # Cálculo e interpretação de escores
+│   ├── rag_prompt.md           # Geração de query RAG
+│   ├── auditor_prompt.md       # Síntese e auditoria clínica
+│   └── one_shot_prompt.md      # Prompt one-shot (baseline)
+├── results/                    # Resultados experimentais
+│   ├── experiment_results_v1.jsonl        # TriaLogic (Agents)
+│   ├── norag_experiment_results_v1.jsonl  # TriaLogic sem RAG
+│   ├── novalidation_experiment_results_v1.jsonl  # TriaLogic sem Validator
+│   ├── probabilistic_experiment_results_v1.jsonl # TriaLogic Probabilístico
+│   ├── baseline_results.jsonl   # Baseline Zero-Shot
+│   ├── oneshot_baseline_results.jsonl  # Baseline One-Shot
+│   ├── *_latency.json          # Sumários de latência por configuração
+│   ├── tcc_final_metrics.*     # Métricas finais (CSV, LaTeX, HTML, Markdown)
+│   ├── tcc_significance.md     # Intervalos de confiança e testes de significância
+│   └── per_system/             # Relatórios HTML coloridos por sistema
+├── scripts/                    # Scripts de execução e avaliação
+│   ├── run_batch_processing.py # Processamento em lote (configurável via flags)
+│   ├── run_baseline.py         # Baseline Zero-Shot
+│   ├── run_baseline_oneshot.py # Baseline One-Shot
+│   ├── run_single.py           # Análise de caso único
+│   ├── evaluation.py           # Avaliação com métricas, bootstrap CI, McNemar
+│   ├── ingest_knowledge.py     # Ingestão de PDFs no ChromaDB
+│   ├── filter_dataset.py       # Filtragem e amostragem do dataset
+│   └── plot_risk_distribution.py  # Visualização de distribuições
+├── src/                        # Código-fonte principal
+│   ├── main.py                 # Definição e compilação do grafo LangGraph
+│   ├── agents/                 # Implementação dos agentes
+│   │   ├── supervisor.py       # Planejamento e roteamento condicional
+│   │   ├── scribe.py           # Extração clínica estruturada
+│   │   ├── validator.py        # Validação fisiológica com retry loop
+│   │   ├── mathematician.py    # Cálculo de escores (determinístico/probabilístico)
+│   │   ├── clinical_rag.py     # Recuperação de evidências clínicas
+│   │   └── synthesizer.py      # Síntese e auditoria final
+│   ├── schemas/                # Modelos Pydantic
+│   │   ├── scribe_schema.py    # ClinicalSchema (vitais + ACVPU)
+│   │   ├── mathematician_schema.py  # MathematicianSchema (escores)
+│   │   ├── auditor_schema.py   # AuditorOutput (relatório)
+│   │   └── input_schema.py     # InputSchema (entrada do pipeline)
+│   ├── state/                  # Estado compartilhado do LangGraph
+│   │   └── agent_state.py      # AgentState (TypedDict)
+│   ├── tools/                  # Ferramentas de tool calling
+│   │   └── calculator.py       # Calculadora determinística NEWS2/MEWS
+│   └── utils/                  # Utilitários
+│       ├── vectorstore.py      # Singleton ChromaDB com cache
+│       ├── check_quote.py      # Verificação de fidelidade de citação
+│       ├── vitals_normalizer.py # Normalização de sinais vitais
+│       └── run_with_timeout.py # Timeout para chamadas LLM
+└── requirements.txt            # Dependências
 ```
 
 ## 🛠️ Instalação
@@ -152,11 +185,11 @@ TriaLogic/
     cd TriaLogic
     ```
 
-2. **Configure o ambiente Python** (recomenda-se Conda):
+2. **Configure o ambiente Python** (Python 3.11+):
 
     ```bash
     # Opção 1: Usando Conda
-    conda create -n trialogic python=3.10
+    conda create -n trialogic python=3.11
     conda activate trialogic
 
     # Opção 2: Usando venv
@@ -170,147 +203,124 @@ TriaLogic/
     pip install -r requirements.txt
     ```
 
-4. **Configuração do Ambiente**:
+4. **Instale o Ollama e baixe o modelo** (pré-requisito):
 
-    Crie um arquivo `.env` na raiz do projeto (opcional, para configurações extras):
-
-    ```env
-    ANTHROPIC_API_KEY=sua_chave_anthropic_aqui  # Opcional
-    ```
-
-    **Pré-requisito**: Instale o [Ollama](https://ollama.ai) e baixe o modelo:
+    Instale o [Ollama](https://ollama.ai) e baixe o modelo LLaMA 3.1 8B:
 
     ```bash
     ollama pull llama3.1:8b
     ```
 
-5. **Prepare a Base de Conhecimento** (para RAG):
+5. **Prepare a Base de Conhecimento** (RAG):
 
     ```bash
-    python scripts/ingest_knowledge.py
+    python -m scripts.ingest_knowledge
     ```
 
 ## 🏃 Uso
 
-### 1. Configurar Base de Conhecimento (RAG)
-
-Antes de executar os agentes, ingira os documentos padrão-ouro no banco vetorial:
+### Processamento em Lote (Experimento Principal)
 
 ```bash
-python scripts/ingest_knowledge.py
+# TriaLogic completo (Validator + RAG + Determinístico)
+python -m scripts.run_batch_processing -o results/experiment_results.jsonl
+
+# Sem Validator
+python -m scripts.run_batch_processing --no-validator -o results/novalidation_results.jsonl
+
+# Sem RAG
+python -m scripts.run_batch_processing --no-rag -o results/norag_results.jsonl
+
+# Mathematician Probabilístico (LLM-based)
+python -m scripts.run_batch_processing --probabilistic -o results/probabilistic_results.jsonl
 ```
 
-### 2. Executar Análise de Caso Único
-
-Para testar o workflow em um caso específico:
+### Baselines
 
 ```bash
-python scripts/run_single.py
+# Baseline Zero-Shot
+python -m scripts.run_baseline -o results/baseline_b0.jsonl
+
+# Baseline One-Shot
+python -m scripts.run_baseline_oneshot -o results/baseline_b1.jsonl
 ```
 
-### 3. Processamento em Lote
-
-Para processar um dataset completo (e.g., `gold_standard_dataset.csv`):
+### Avaliação e Métricas
 
 ```bash
-python scripts/run_batch_processing.py
+python -m scripts.evaluation
 ```
 
-### 4. Executar Baseline para Comparação
+Gera automaticamente: CSV, LaTeX, HTML, Markdown, relatórios por sistema, intervalos de confiança (bootstrap) e teste de McNemar.
 
-Para executar o baseline zero-shot:
+### Caso Único (Teste)
 
 ```bash
-python scripts/run_baseline.py
+python -m scripts.run_single
 ```
 
-### 5. Avaliação e Métricas
+## 📊 Resultados
 
-Para avaliar resultados experimentais:
+### Métricas Agregadas por Sistema
 
-```bash
-python scripts/evaluation.py
-```
+| Sistema                   | MAE Médio | Taxa Alucinação | Macro F1 (IC 95%)         | N Amostras |
+|---------------------------|-----------|-----------------|---------------------------|------------|
+| Baseline (Zero-Shot)      | 3.66      | 11.95%          | 0.793 [0.765, 0.820]      | 1088       |
+| Baseline (One-Shot)       | 2.85      | 4.80%           | 0.843 [0.817, 0.867]      | 1084       |
+| No RAG                    | 2.55      | 2.78%           | 0.863 [0.838, 0.888]      | 1007       |
+| **TriaLogic (Agents)**    | **2.38**  | **2.60%**       | **0.875 [0.851, 0.898]**  | 1001       |
+| TriaLogic (No Validator)  | 10.15     | 17.08%          | 0.723 [0.689, 0.755]      | 1001       |
+| TriaLogic (Probabilistic) | 2.79      | 8.81%           | 0.875 [0.852, 0.898]      | 987        |
 
-## 📊 Resultados e Métricas
+### Significância Estatística
 
-O sistema reporta automaticamente métricas detalhadas incluindo:
+* **McNemar TA vs B0 (Extração)**: n=742 pares, b=101 vs c=43, p < 0.001
+* **McNemar TA vs B0 (NEWS)**: n=129 pares, b=48 vs c=10, p < 0.001
 
-- **Precisão de Extração**: Acurácia na extração de sinais vitais (Pressão Sistólica, FC, FR, SpO₂, Temperatura)
-- **Erro Absoluto Médio (MAE)**: Para valores numéricos extraídos
-- **Acurácia de Escores**: NEWS2 e MEWS calculados vs. padrão-ouro
-- **Taxa de Alucinação**: Frequência de informações não presentes no texto original
-- **Latência por Agente**: Tempo de processamento detalhado
+### Latência por Caso
 
-### Exemplo de Métricas de Performance
+| Sistema              | N    | Mediana (s) | Média (s) | DP (s) | P95 (s) |
+|----------------------|------|-------------|-----------|--------|---------|
+| Baseline (Zero-Shot) | 104  | 20.56       | 28.66     | 23.74  | 70.92   |
+| Baseline (One-Shot)  | 77   | 46.38       | 66.22     | 45.37  | 167.77  |
+| TriaLogic (Agents)   | 23   | 151.98      | 151.74    | 25.58  | 187.28  |
 
-| Sistema | Rec_SBP | MAE_SBP | Acc_MEWS | Acc_NEWS | Taxa_Alucinação |
-|---------|---------|---------|----------|----------|-----------------|
-| Baseline (Zero-Shot) | 94.1% | 5.76 | 3.6% | 22.9% | 34.3% |
-| TriaLogic (Completo) | 94.1% | 4.0 | 23.2% | 19.5% | 47.1% |
+*Medições em hardware local: AMD Ryzen 5 5500H, 16 GB RAM, NVIDIA RTX 3050 4 GB VRAM, Ollama 0.17.0.*
 
-## 🧠 Agentes e Modelos
+## 🧠 Agentes
 
-- **Scribe Agent**: Especializado na extração de sinais vitais de texto clínico não estruturado. Utiliza um processo de dois passos para identificar candidatos e extrair valores precisos.
-- **Validator Node**: Garante conformidade com schema Pydantic e realiza validação lógica com sistema de retry automático.
-- **Mathematician Agent**: Calcula escores de risco clínico (NEWS2, MEWS) usando tool calling para execução Python determinística e probabilística.
-- **Clinical RAG Agent**: Recupera diretrizes clínicas (Sepsis-3, qSOFA, SIRS) do banco vetorial ChromaDB para auditoria baseada em evidências.
-- **Synthesizer Agent**: Compila relatório final com verificação de fidelidade de citações (anti-alucinação).
+* **Supervisor**: Planejamento e roteamento condicional baseado em estado. Factory pattern parametrizado por `use_rag` e `use_validator`.
+* **Scribe**: Extração de sinais vitais em dois passos (identificação de span + extração estruturada). Saída validada via `ClinicalSchema` (Pydantic).
+* **Validator**: Verificação de plausibilidade fisiológica com regras determinísticas, conversão automática Fahrenheit→Celsius, e *scrubbing* compulsório após 3 tentativas falhadas.
+* **Mathematician**: Cálculo de NEWS2 e MEWS via *tool calling* determinístico (`calculator.py`). Modo probabilístico (LLM-based) disponível como configuração alternativa.
+* **Clinical RAG**: Geração de query contextual + recuperação de diretrizes clínicas do ChromaDB (embeddings `all-MiniLM-L6-v2`).
+* **Synthesizer**: Síntese de relatório final com extração de evidências do contexto RAG, *quote fidelity check* e limiar de similaridade mínima (0.45).
 
-### Tecnologias Principais
+### Stack Tecnológica
 
-- **LangGraph**: Framework de orquestração de agentes
-- **LLaMA 3.1 8B (via Ollama)**: Modelo de linguagem principal (local)
-- **HuggingFace Sentence-Transformers**: Embeddings para RAG (all-MiniLM-L6-v2)
-- **ChromaDB**: Banco de dados vetorial para RAG
-- **Pydantic**: Validação e estruturação de dados
-- **LangChain**: Ferramentas de LLM e integração
+* **LangGraph**: Orquestração de agentes (grafo de estados com roteamento condicional)
+* **LLaMA 3.1 8B (via Ollama)**: LLM local (temperatura=0, seed=42, num_ctx=8192)
+* **HuggingFace Sentence-Transformers**: Embeddings para RAG (`all-MiniLM-L6-v2`)
+* **ChromaDB**: Banco de dados vetorial para RAG
+* **Pydantic**: Validação e estruturação de esquemas de dados
+* **LangChain**: Integração com LLM, prompts e ferramentas
+* **scikit-learn**: Métricas de avaliação (precision, recall, F1)
 
-## 🚀 Considerações de Produção
+## ⚠️ Limitações
 
-### Performance e Latência
-
-- **Latência Média**: 30-60s por caso em hardware típico
-- **Aumento vs. Baseline**: 3–5× comparado ao zero-shot (devido à orquestração multi-agente)
-- **Agentes Dominantes**: Scribe e Mathematician tipicamente dominam o tempo de execução
-- **Monitoramento**: Tempo por agente é automaticamente registrado e reportado
-
-### Viabilidade Clínica
-
-- **Triagem Automatizada**: Latência aceitável para uso em pronto-socorro (dentro do tempo padrão de espera)
-- **Análise de Risco**: Adequado para sistemas de alerta precoce e priorização de pacientes
-- **Auditoria Retrospectiva**: Ideal para análise em lote de casos históricos
-
-### Otimizações Recomendadas
-
-- **Paralelismo**: Execução paralela de agentes independentes
-- **Early Stopping**: Encerramento ao atingir confiança suficiente
-- **Caching**: Cache de respostas LLM e resultados intermediários
-- **Load Balancing**: Distribuição de carga para processamento em larga escala
-
-## ⚠️ Limitações e Considerações
-
-- **Dependência de LLM**: Performance sujeita à disponibilidade e latência de APIs externas
-- **Contexto Limitado**: Truncagem automática para contextos > 4k tokens
-- **Domínio Específico**: Otimizado para sinais vitais e escores NEWS2/MEWS
-- **Validação Clínica**: Requer validação adicional para uso em produção hospitalar
-
-## 🤝 Contribuindo
-
-Contribuições são bem-vindas! Por favor:
-
-1. Faça um fork do projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/nova-feature`)
-3. Commit suas mudanças (`git commit -am 'Adiciona nova feature'`)
-4. Push para a branch (`git push origin feature/nova-feature`)
-5. Abra um Pull Request
+* **Inferência local**: Latência ~2.5 min/caso em hardware com GPU de 4 GB VRAM (offloading parcial CPU/GPU). Servidores com GPUs dedicadas (24+ GB VRAM) reduziriam significativamente.
+* **Parsing Success Rate**: 80.4% nas configurações com agentes vs 89.0% no baseline, devido ao rigor dos esquemas Pydantic e validação fisiológica.
+* **Modelo 8B**: Raciocínio aritmético limitado — o modo probabilístico apresenta 56.9% de alucinação no NEWS vs 4.7% no modo determinístico.
+* **Dataset**: 154 admissões únicas do MIMIC-IV-Notes (Beth Israel Deaconess Medical Center). Variabilidade geográfica e institucional não coberta.
+* **Avaliação RAG**: Apenas qualitativa — ausência de ground truth de condutas médicas para métricas automatizadas.
+* **Janela de contexto**: Limitada a 8.192 tokens, impactando notas clínicas atipicamente longas.
 
 ## 📚 Referências Clínicas
 
-- **NEWS2**: National Early Warning Score 2 (Royal College of Physicians)
-- **MEWS**: Modified Early Warning Score
-- **Sepsis-3**: Third International Consensus Definitions for Sepsis
-- **qSOFA**: Quick Sequential Organ Failure Assessment
+* **NEWS2**: National Early Warning Score 2 (Royal College of Physicians)
+* **MEWS**: Modified Early Warning Score
+* **Sepsis-3**: Third International Consensus Definitions for Sepsis
+* **MIMIC-IV**: Medical Information Mart for Intensive Care (PhysioNet)
 
 ## 📄 Licença
 

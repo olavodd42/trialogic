@@ -1,13 +1,16 @@
+"""Batch-process clinical notes through the TriaLogic multi-agent pipeline."""
+
 import sys
 import os
 import json
 import time
 import argparse
+
 import numpy as np
 import pandas as pd
-from tqdm import tqdm # Barra de progresso
+from tqdm import tqdm  # Progress bar
 
-# Setup de Path
+# Path setup
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.main import create_workflow
@@ -22,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 SEED = 42
 
-# Caminhos
-INPUT_CSV = os.path.join(os.getcwd(), "data/gold_standard_dataset.csv") # O dataset filtrado que criamos antes
+# Paths
+INPUT_CSV = os.path.join(os.getcwd(), "data/gold_standard_dataset.csv")  # Filtered dataset created earlier
 
 
 def parse_args():
@@ -73,15 +76,15 @@ app = create_workflow(
 def main():
     logger.info("=" * 60)
     logger.info("TriaLogic Batch Processing")
-    logger.info(f"  Validator:     {'ON' if USE_VALIDATOR else 'OFF'}")
-    logger.info(f"  Clinical RAG:  {'ON' if USE_RAG else 'OFF'}")
-    logger.info(f"  Mathematician: {'Probabilistic (LLM)' if USE_PROBABILISTIC else 'Deterministic'}")
-    logger.info(f"  Output:        {OUTPUT_FILE}")
+    logger.info("  Validator:     %s", 'ON' if USE_VALIDATOR else 'OFF')
+    logger.info("  Clinical RAG:  %s", 'ON' if USE_RAG else 'OFF')
+    logger.info("  Mathematician: %s", 'Probabilistic (LLM)' if USE_PROBABILISTIC else 'Deterministic')
+    logger.info("  Output:        %s", OUTPUT_FILE)
     logger.info("=" * 60)
 
     # 1. Load data
     if not os.path.exists(INPUT_CSV):
-        logger.error(f"❌ Create the file {INPUT_CSV} first (use filter scripts).")
+        logger.error("Create the file %s first (use filter scripts).", INPUT_CSV)
         return
     
     df = pd.read_csv(INPUT_CSV)
@@ -90,7 +93,7 @@ def main():
     processed_ids = set()
     
     if os.path.exists(OUTPUT_FILE):
-        logger.info(f"📂 Output file found at {OUTPUT_FILE}. Loading processed IDs...")
+        logger.info("Output file found at %s. Loading processed IDs...", OUTPUT_FILE)
         with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
             for line in f:
                 try:
@@ -100,10 +103,10 @@ def main():
                     
                     processed_ids.add((s_id, h_id))
                 except json.JSONDecodeError:
-                    continue # Pula linhas corrompidas (se houver)
+                    continue  # Skip corrupted lines (if any)
 
     # df = df.head(5)
-    logger.info(f"🧪 Start batch experiment with {max(0, len(df) - len(processed_ids))} cases.")
+    logger.info("Start batch experiment with %d cases.", max(0, len(df) - len(processed_ids)))
 
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
@@ -120,7 +123,7 @@ def main():
             check_h_id = str(hadm_id) if pd.notna(hadm_id) else "None"
 
             if (check_s_id, check_h_id) in processed_ids:
-                # Se já existe no set, pulamos silenciosamente para não poluir o log
+                # Already in set, skip silently to avoid log pollution
                 continue
 
             if len(str(text)) < 20:
@@ -135,10 +138,10 @@ def main():
             try:
                 final_state = app.invoke({"input": input_obj})
 
-                # Reporta timings dos agentes
+                # Report per-agent timings
                 if hasattr(app, "get_timings"):
                      timings = app.get_timings(final_state)
-                     logger.info(f"Tempo por agente: {timings}")
+                     logger.info("Per-agent timing: %s", timings)
 
                 # Safely extract vitals whether extracted_data is a dict or Pydantic model
                 extracted_data = final_state.get("extracted_data")
@@ -161,12 +164,12 @@ def main():
                     "latency_seconds": None  # placeholder, filled in finally
                 }
 
-                logger.info(f"Writing to json: {result_record}")
+                logger.info("Writing to json: %s", result_record)
 
                 f.write(json.dumps(result_record) + "\n")
                 f.flush()
             except Exception as e:
-                logger.error(f"\n❌Error on ID {subject_id}: {e}")
+                logger.error("Error on ID %s: %s", subject_id, e)
                 error_record = {"subject_id": subject_id, "hadm_id": hadm_id, "error": str(e)}
                 f.write(json.dumps(error_record) + "\n")
             finally:
@@ -202,25 +205,25 @@ def main():
             "p99_seconds": round(float(np.percentile(arr, 99)), 4),
         }
         logger.info("=" * 60)
-        logger.info(f"📊 Latency Summary — {method_label}")
-        logger.info(f"  N cases:  {latency_summary['n_cases']}")
-        logger.info(f"  Total:    {latency_summary['total_time_seconds']:.2f}s")
-        logger.info(f"  Mean:     {latency_summary['mean_seconds']:.4f}s")
-        logger.info(f"  Median:   {latency_summary['median_seconds']:.4f}s")
-        logger.info(f"  Std Dev:  {latency_summary['std_seconds']:.4f}s")
-        logger.info(f"  Min/Max:  {latency_summary['min_seconds']:.4f}s / {latency_summary['max_seconds']:.4f}s")
-        logger.info(f"  P25/P75:  {latency_summary['p25_seconds']:.4f}s / {latency_summary['p75_seconds']:.4f}s")
-        logger.info(f"  P95:      {latency_summary['p95_seconds']:.4f}s")
-        logger.info(f"  P99:      {latency_summary['p99_seconds']:.4f}s")
+        logger.info("Latency Summary -- %s", method_label)
+        logger.info("  N cases:  %d", latency_summary['n_cases'])
+        logger.info("  Total:    %.2fs", latency_summary['total_time_seconds'])
+        logger.info("  Mean:     %.4fs", latency_summary['mean_seconds'])
+        logger.info("  Median:   %.4fs", latency_summary['median_seconds'])
+        logger.info("  Std Dev:  %.4fs", latency_summary['std_seconds'])
+        logger.info("  Min/Max:  %.4fs / %.4fs", latency_summary['min_seconds'], latency_summary['max_seconds'])
+        logger.info("  P25/P75:  %.4fs / %.4fs", latency_summary['p25_seconds'], latency_summary['p75_seconds'])
+        logger.info("  P95:      %.4fs", latency_summary['p95_seconds'])
+        logger.info("  P99:      %.4fs", latency_summary['p99_seconds'])
         logger.info("=" * 60)
 
         # Save latency summary
         latency_path = OUTPUT_FILE.replace('.jsonl', '_latency.json')
         with open(latency_path, 'w', encoding='utf-8') as f:
             json.dump(latency_summary, f, indent=2, ensure_ascii=False)
-        logger.info(f"📊 Latency summary saved in {latency_path}")
+        logger.info("Latency summary saved in %s", latency_path)
 
-    print(f"\n✅ Finished experiment. Results saved in {OUTPUT_FILE}")
+    print(f"\nFinished experiment. Results saved in {OUTPUT_FILE}")
 
 if __name__ == "__main__":
     main()

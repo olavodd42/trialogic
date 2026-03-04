@@ -1,3 +1,5 @@
+"""Baseline one-shot experiment: single LLM call with one-shot prompt per clinical note."""
+
 import logging
 import os
 import json
@@ -63,7 +65,7 @@ def create_llm():
         model="llama3.1:latest",
         temperature=0,
         seed=42,
-        num_predict=2048,   # Must be large enough for full JSON output + any preamble
+        num_predict=2048,   
         keep_alive=-1,
     )
 
@@ -87,7 +89,7 @@ def invoke_with_hard_timeout(messages, timeout_seconds: int = LLM_TIMEOUT):
     t.join(timeout=timeout_seconds)
 
     if t.is_alive():
-        logger.warning(f"⏰ Hard timeout ({timeout_seconds}s) exceeded. Recreating LLM client...")
+        logger.warning("Hard timeout (%ds) exceeded. Recreating LLM client...", timeout_seconds)
         llm = create_llm()
         raise TimeoutError(f"LLM call exceeded {timeout_seconds}s hard timeout")
 
@@ -212,10 +214,10 @@ def check_ollama_health(base_url: str = "http://127.0.0.1:11434") -> bool:
 
 def wait_for_ollama(base_url: str = "http://127.0.0.1:11434", max_wait: int = 60):
     """Wait until Ollama is reachable, optionally trying to start it."""
-    logger.info("⏳ Waiting for Ollama to become available...")
+    logger.info("Waiting for Ollama to become available...")
     for i in range(max_wait // 5):
         if check_ollama_health(base_url):
-            logger.info("✅ Ollama is available.")
+            logger.info("Ollama is available.")
             return True
         if i == 0:
             try:
@@ -225,11 +227,11 @@ def wait_for_ollama(base_url: str = "http://127.0.0.1:11434", max_wait: int = 60
                     stderr=subprocess.DEVNULL,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
-                logger.info("🔄 Attempted to start 'ollama serve'...")
+                logger.info("Attempted to start 'ollama serve'...")
             except FileNotFoundError:
                 logger.warning("ollama binary not found in PATH.")
         time.sleep(5)
-    logger.error("❌ Ollama did not become available.")
+    logger.error("Ollama did not become available.")
     return False
 
 
@@ -248,7 +250,7 @@ def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None, output
         before = len(df)
         df = df[~df['hadm_id'].isin(completed_ids)]
         skipped = before - len(df)
-        logger.info(f"⏭️  Skipping {skipped} already processed cases ({len(completed_ids)} found in output file).")
+        logger.info("Skipping %d already processed cases (%d found in output file).", skipped, len(completed_ids))
 
     # Verify Ollama is available before starting
     if not check_ollama_health():
@@ -256,7 +258,7 @@ def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None, output
             logger.error("Aborting: Ollama is not running.")
             return {}
 
-    logger.info(f"🚀 Starting baseline (Vanilla Llama 3.1) in {len(df)} cases...")
+    logger.info("Starting baseline (Vanilla Llama 3.1) in %d cases...", len(df))
 
     # Open output file in append mode for incremental saving
     os.makedirs(os.path.dirname(output_path), exist_ok=True) if output_path else None
@@ -283,7 +285,7 @@ def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None, output
             try:
                 # Check if too many consecutive failures
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                    logger.warning(f"🛑 {MAX_CONSECUTIVE_FAILURES} consecutive failures. Checking Ollama health...")
+                    logger.warning("%d consecutive failures. Checking Ollama health...", MAX_CONSECUTIVE_FAILURES)
                     if not wait_for_ollama():
                         logger.error("Aborting batch: Ollama is unreachable.")
                         break
@@ -316,7 +318,7 @@ def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None, output
                     results_count += 1
                     consecutive_failures = 0
                 else:
-                    logger.warning(f"Failed to parse JSON for ID {row.get('subject_id')}")
+                    logger.warning("Failed to parse JSON for ID %s", row.get('subject_id'))
                     result_entry = {
                         "hadm_id": row.get('hadm_id'),
                         "error": "JSON_PARSE_ERROR",
@@ -327,7 +329,7 @@ def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None, output
 
             except (httpx.TimeoutException, httpx.ConnectError, ConnectionError, OSError) as e:
                 consecutive_failures += 1
-                logger.warning(f"⏰ Connection/Timeout error on index {index} (hadm_id={row.get('hadm_id')}): {type(e).__name__}. Consecutive failures: {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}")
+                logger.warning("Connection/Timeout error on index %s (hadm_id=%s): %s. Consecutive failures: %d/%d", index, row.get('hadm_id'), type(e).__name__, consecutive_failures, MAX_CONSECUTIVE_FAILURES)
                 result_entry = {
                     "hadm_id": row.get('hadm_id'),
                     "error": f"{type(e).__name__}: {str(e)[:80]}",
@@ -337,7 +339,7 @@ def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None, output
 
             except Exception as e:
                 consecutive_failures += 1
-                logger.error(f"Error on index {index}: {e}")
+                logger.error("Error on index %s: %s", index, e)
                 result_entry = {
                     "hadm_id": row.get('hadm_id'),
                     "error": f"EXCEPTION: {str(e)}",
@@ -359,7 +361,7 @@ def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None, output
         if out_file:
             out_file.close()
 
-    logger.info(f"📦 Processed {results_count} OK, {errors_count} errors.")
+    logger.info("Processed %d OK, %d errors.", results_count, errors_count)
 
     # ── Latency Summary (for TCC / Article) ──
     latency_summary = compute_latency_summary(latencies, method="baseline_one_shot")
@@ -385,16 +387,16 @@ def compute_latency_summary(latencies: list, method: str = "baseline") -> Dict[s
         "p99_seconds": round(float(np.percentile(arr, 99)), 4),
     }
     logger.info("=" * 60)
-    logger.info(f"📊 Latency Summary — {method}")
-    logger.info(f"  N cases:  {summary['n_cases']}")
-    logger.info(f"  Total:    {summary['total_time_seconds']:.2f}s")
-    logger.info(f"  Mean:     {summary['mean_seconds']:.4f}s")
-    logger.info(f"  Median:   {summary['median_seconds']:.4f}s")
-    logger.info(f"  Std Dev:  {summary['std_seconds']:.4f}s")
-    logger.info(f"  Min/Max:  {summary['min_seconds']:.4f}s / {summary['max_seconds']:.4f}s")
-    logger.info(f"  P25/P75:  {summary['p25_seconds']:.4f}s / {summary['p75_seconds']:.4f}s")
-    logger.info(f"  P95:      {summary['p95_seconds']:.4f}s")
-    logger.info(f"  P99:      {summary['p99_seconds']:.4f}s")
+    logger.info("Latency Summary -- %s", method)
+    logger.info("  N cases:  %d", summary['n_cases'])
+    logger.info("  Total:    %.2fs", summary['total_time_seconds'])
+    logger.info("  Mean:     %.4fs", summary['mean_seconds'])
+    logger.info("  Median:   %.4fs", summary['median_seconds'])
+    logger.info("  Std Dev:  %.4fs", summary['std_seconds'])
+    logger.info("  Min/Max:  %.4fs / %.4fs", summary['min_seconds'], summary['max_seconds'])
+    logger.info("  P25/P75:  %.4fs / %.4fs", summary['p25_seconds'], summary['p75_seconds'])
+    logger.info("  P95:      %.4fs", summary['p95_seconds'])
+    logger.info("  P99:      %.4fs", summary['p99_seconds'])
     logger.info("=" * 60)
     return summary
 
@@ -407,9 +409,9 @@ if __name__ == "__main__":
 
     logger.info("=" * 60)
     logger.info("Baseline One-Shot Experiment")
-    logger.info(f"  Input:   {CSV_PATH}")
-    logger.info(f"  Output:  {OUTPUT_PATH}")
-    logger.info(f"  Limit:   {args.limit or 'all'}")
+    logger.info("  Input:   %s", CSV_PATH)
+    logger.info("  Output:  %s", OUTPUT_PATH)
+    logger.info("  Limit:   %s", args.limit or 'all')
     logger.info("=" * 60)
     
     if os.path.exists(CSV_PATH):
@@ -423,8 +425,8 @@ if __name__ == "__main__":
         latency_path = OUTPUT_PATH.replace('.jsonl', '_latency.json')
         with open(latency_path, 'w', encoding='utf-8') as f:
             json.dump(latency_summary, f, indent=2, ensure_ascii=False)
-        logger.info(f"📊 Latency summary saved in {latency_path}")
+        logger.info("Latency summary saved in %s", latency_path)
                 
-        logger.info(f"✅ Baseline finished. Results saved in {OUTPUT_PATH}")
+        logger.info("Baseline finished. Results saved in %s", OUTPUT_PATH)
     else:
-        logger.error(f"Dataset not found: {CSV_PATH}")
+        logger.error("Dataset not found: %s", CSV_PATH)

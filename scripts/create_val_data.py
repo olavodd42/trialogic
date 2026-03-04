@@ -1,6 +1,9 @@
-import pandas as pd
+"""Create a validation-notes CSV by removing entries already present in ground_truth."""
+
 import os
 import csv
+
+import pandas as pd
 
 SEED = 42
 

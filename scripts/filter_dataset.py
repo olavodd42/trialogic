@@ -1,5 +1,8 @@
-import polars as pl
+"""Filter discharge notes by clinical cohort and build the gold-standard dataset."""
+
 import os
+
+import polars as pl
 
 SEED = 42
 
@@ -17,7 +20,7 @@ def filter_cohort(df, keywords, n=50):
     return (
         df.filter(pl.col("text").str.to_lowercase().str.contains(pattern))
           .sample(n=n, seed=SEED) 
-          .with_columns(pl.lit(keywords[0]).alias("cohort_type")) # Marca a coorte
+          .with_columns(pl.lit(keywords[0]).alias("cohort_type")) # Mark the cohort
     )
 
 # 3. Generate the random samples

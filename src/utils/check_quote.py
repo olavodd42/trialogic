@@ -1,73 +1,44 @@
+"""Quote-fidelity checker for RAG evidence citations.
 
-# from difflib import SequenceMatcher
-# def check_quote_fidelity(quote: str, context: str, threshold=0.3) -> bool:
-#     """
-#     Verifies if the cited quote exists within the provided context using fuzzy matching.
+Provides heuristic-based verification that an LLM-generated quote
+faithfully reflects the retrieved context, using exact matching,
+SequenceMatcher ratios, Jaccard overlap, bigram overlap, and
+numeric-evidence matching.
+"""
 
-#     Args:
-#         quote (str): The evidence quote extracted by the LLM.
-#         context (str): The full context text to search within.
-#         threshold (float): Minimum similarity threshold for fuzzy matching.
-
-#     Returns:
-#         bool: True if the quote is consistent with the context, False otherwise.
-#     """
-#     # 1. Ignore validations in explicit error cases
-#     if "Missing data" in quote or "not found" in quote.lower():
-#         return True
-
-#     # 2. Clean the data
-#     quote_clean = " ".join(quote.lower().split())
-#     context_clean = " ".join(context.lower().split())
-    
-#     # 3. Exact Match
-#     if quote_clean in context_clean:
-#         return True
-        
-#     # 4. Fuzzy Match
-#     match = SequenceMatcher(None, quote_clean, context_clean).find_longest_match(0, len(quote_clean), 0, len(context_clean))
-#     score = match.size / len(quote_clean) if len(quote_clean) > 0 else 0
-    
-#     if score > threshold:
-#         return True
-
-#     # 5. Keyword Rescue
-#     keywords = ["sbp", "mmhg", "mews", "news", "score", "rate", "temp", "sepsis", "hypotension", "tachycardia"]
-#     hits = sum(1 for k in keywords if k in quote_clean)
-
-#     return hits >= 2
-
-import re
 import logging
+import re
 from difflib import SequenceMatcher
-from typing import Optional
+from typing import List, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
 def _normalize_text(s: str) -> str:
+    """Lower-case, strip quotes/brackets/punctuation and collapse whitespace."""
     s = s or ""
-    # preserva números, % e / (para BP 120/80), remove pontuação "decorativa"
     s = s.lower()
     s = re.sub(r"[“”\"'«»`]", "", s)
     s = re.sub(r"[\(\)\[\]\{\}:;,\—\–\*]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
-def _sentences(text: str):
-    # split simples por sentenças — suficiente para nossa análise
+def _sentences(text: str) -> List[str]:
+    """Split *text* into sentences on '.', '?', '!', or newline boundaries."""
     text = text or ""
     parts = re.split(r'(?<=[\.\?\!\n])\s+', text)
     return [p.strip() for p in parts if p.strip()]
 
-def _token_set(s: str):
+def _token_set(s: str) -> Set[str]:
+    """Return the set of alphanumeric tokens (length >= 2) in *s*."""
     return set(re.findall(r"\b[a-z0-9%/]{2,}\b", s.lower()))
 
-def _bigrams(s: str):
+def _bigrams(s: str) -> Set[Tuple[str, str]]:
+    """Return the set of consecutive-token bigrams in *s*."""
     toks = list(re.findall(r"\b[a-z0-9%/]{2,}\b", s.lower()))
     return set(zip(toks, toks[1:])) if len(toks) >= 2 else set()
 
-def _extract_numbers(s: str):
-    # encontra números, porcentagens e BPs (ex: 120/80)
+def _extract_numbers(s: str) -> List[str]:
+    """Extract numbers, percentages, and BP-style values (e.g. 120/80)."""
     nums = re.findall(r"\d{1,3}(?:/\d{1,3})?(?:\.\d+)?%?", s)
     return nums
 
@@ -78,41 +49,42 @@ def check_quote_fidelity(quote: str, context: str,
                         bigram_threshold: float = 0.35,
                         numeric_strict: bool = True) -> bool:
     """
-    Verifica se `quote` está adequado ao `context` usando várias heurísticas:
-      1) correspondência exata,
-      2) comparação por sentença com SequenceMatcher (ratios altos = match forte),
-      3) Jaccard token-level e bigram overlap,
-      4) correspondência numérica (se quote contém números, estes aumentam confiança).
+    Verify whether *quote* faithfully represents *context* using several heuristics.
 
-    Retorna True se considerarmos a citação fiel ao contexto.
+    Checks applied (in order):
+      1. Exact substring match.
+      2. Per-sentence SequenceMatcher ratio (high ratio = strong match).
+      3. Jaccard token-level and bigram overlap.
+      4. Numeric evidence matching (numbers in the quote must appear in context).
 
-    Parâmetros de sensibilidade podem ser ajustados pelos argumentos.
+    Returns ``True`` when the citation is considered faithful.
+    Sensitivity parameters can be tuned via the keyword arguments.
     """
 
-    # 0. Casos explícitos (mantidos compatíveis com a função antiga)
+    # 0. Explicit edge cases (kept compatible with the legacy function)
     if not quote:
-        return False  # quote vazio -> não fiel (caller pode optar por fallback)
+        return False  # Empty quote -> not faithful (caller may use a fallback)
     if "missing data" in quote.lower() or "not found" in quote.lower():
         return True
 
     quote_clean = _normalize_text(quote)
     context_clean = _normalize_text(context)
 
-    # 1. Exact substring match (mais forte)
+    # 1. Exact substring match (strongest signal)
     if quote_clean in context_clean:
         logger.debug("check_quote_fidelity: exact substring match")
         return True
 
-    # 2. If quote very short, require substring only (evita falso-positivo)
+    # 2. If quote is very short, require substring only (avoids false positives)
     if len(quote_clean) < 20:
-        # para citações curtas, aceitar se tokens-chave >=2 presentes no contexto
+        # For short quotes, accept if >= 2 key tokens are present in the context
         q_tokens = _token_set(quote_clean)
         c_tokens = _token_set(context_clean)
         hits = len(q_tokens & c_tokens)
-        logger.debug(f"short quote tokens hits={hits}")
+        logger.debug("Short quote token hits=%d", hits)
         return hits >= 2
 
-    # 3. Sentence-level SequenceMatcher: calcula o melhor ratio entre quote e cada sentença do contexto
+    # 3. Sentence-level SequenceMatcher: compute the best ratio between quote and each context sentence
     sentences = _sentences(context_clean)
     best_ratio = 0.0
     best_sentence = ""
@@ -123,7 +95,7 @@ def check_quote_fidelity(quote: str, context: str,
         if r > best_ratio:
             best_ratio = r
             best_sentence = s
-    logger.debug(f"best_ratio={best_ratio:.3f} best_sentence_preview={best_sentence[:120]}")
+    logger.debug("best_ratio=%.3f best_sentence_preview=%s", best_ratio, best_sentence[:120])
 
     if best_ratio >= ratio_threshold_high:
         logger.debug("check_quote_fidelity: high ratio match")
@@ -141,40 +113,46 @@ def check_quote_fidelity(quote: str, context: str,
     if bigr_q or bigr_s:
         bigram_overlap = len(bigr_q & bigr_s) / max(1, len(bigr_q | bigr_s))
 
-    logger.debug(f"jaccard={jaccard:.3f} bigram_overlap={bigram_overlap:.3f}")
+    logger.debug("jaccard=%.3f bigram_overlap=%.3f", jaccard, bigram_overlap)
 
-    # 5. Numeric evidence: se a quote inclui números (ex: 95%, 120/80), exijimos correspondência numérica forte
+    # 5. Numeric evidence: if the quote includes numbers (e.g. 95%, 120/80), require strong numeric matching
     q_nums = _extract_numbers(quote_clean)
     s_nums = _extract_numbers(best_sentence)
     numeric_match = False
     if q_nums:
-        # se todos os números do quote aparecem no sentence -> match forte
+        # If all numbers in the quote appear in the sentence -> strong match
         numeric_match = all(any(qn == sn for sn in s_nums) for qn in q_nums)
-        logger.debug(f"numeric_match={numeric_match} q_nums={q_nums} s_nums={s_nums}")
+        logger.debug("numeric_match=%s q_nums=%s s_nums=%s", numeric_match, q_nums, s_nums)
 
         if numeric_strict and numeric_match:
             return True
-        # se números presentes mas não batem, reduzir confiança
+        # Numbers present but don't match -> reduce confidence
         if numeric_strict and not numeric_match:
             return False
 
-    # 6. Heurística combinada:
-    # - medium ratio + jaccard or bigram suficiente -> accept
-    if best_ratio >= ratio_threshold_medium and (jaccard >= jaccard_threshold or bigram_overlap >= bigram_threshold):
+    # 6. Combined heuristic:
+    # - medium ratio + sufficient jaccard or bigram -> accept
+    if best_ratio >= ratio_threshold_medium\
+        and (jaccard >= jaccard_threshold or bigram_overlap >= bigram_threshold):
         logger.debug("check_quote_fidelity: medium ratio + lexical overlap -> accept")
         return True
 
-    # - jaccard + bigram strong
-    if (jaccard >= max(0.5, jaccard_threshold)) and (bigram_overlap >= max(0.45, bigram_threshold)):
+    # - strong jaccard + bigram
+    if (jaccard >= max(0.5, jaccard_threshold))\
+        and (bigram_overlap >= max(0.45, bigram_threshold)):
         logger.debug("check_quote_fidelity: strong token/bigram overlap -> accept")
         return True
 
-    # fallback pelo número de keywords clínicos compartilhados (rescue da função antiga)
-    keywords = {"sbp", "mmhg", "mews", "news", "score", "rate", "temp", "sepsis", "hypotension", "tachycardia", "pneumonia", "oxygen", "respiratory"}
+    # Fallback: shared clinical keywords (rescue from the legacy function)
+    keywords = {
+        "sbp", "mmhg", "mews", "news", "score", "rate",
+        "temp", "sepsis", "hypotension", "tachycardia",
+        "pneumonia", "oxygen", "respiratory"
+    }
     hits = sum(1 for k in keywords if k in quote_clean and k in context_clean)
-    logger.debug(f"keyword_hits={hits}")
+    logger.debug("keyword_hits=%d", hits)
     if hits >= 2:
         return True
 
-    # caso contrário, não fiel
+    # Otherwise, not faithful
     return False

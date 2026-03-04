@@ -1,26 +1,27 @@
+"""Ingest clinical guideline documents into the ChromaDB vector store."""
+
 import os
 import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Importa a função nova (note que mudei o nome para ingest_document)
 from src.retriever_data.load_and_preprocess import ingest_document
 
 def main():
-    # Caminho base (ajuste conforme sua estrutura real)
+    # Base path (adjust according to your actual project structure)
     base_path = os.getcwd() 
     docs_folder = os.path.join(base_path, "docs")
     
-    print("🚀 Iniciando Ingestão de Conhecimento...")
+    print("Starting knowledge ingestion...")
 
-    # 1. Ingerir a "Cheat Sheet" (O Pulo do Gato)
+    # 1. Ingest the definitions cheat sheet
     ingest_document(
         filepath=os.path.join(docs_folder, "definitions.txt"),
         category="protocol_definitions", # Categoria especial
         source_type="gold_standard_definitions"
     )
 
-    # 2. Ingerir os PDFs normais (Exemplos)
+    # 2. Ingest PDF guidelines
     ingest_document(
         filepath=os.path.join(docs_folder, "Sepsis-3.pdf"),
         category="sepsis",

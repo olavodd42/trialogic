@@ -1,11 +1,21 @@
-from typing import List, Literal, Dict, Callable
-from src.state.agent_state import AgentState
+"""Supervisor agent for orchestrating the TriaLogic workflow.
+
+This module provides factory functions that create the planning and
+routing logic for the LangGraph state machine.  The supervisor decides
+which agent node should execute next based on the current pipeline state.
+"""
+
 import logging
+from typing import Callable, Dict, List
+
+from src.state.agent_state import AgentState
 
 logger = logging.getLogger(__name__)
 
 
-def create_supervisor_planning(use_rag: bool = True) -> Callable[[AgentState], Dict[str, List[str]]]:
+def create_supervisor_planning(
+        use_rag: bool = True
+    ) -> Callable[[AgentState], Dict[str, List[str]]]:
     """
     Factory: creates a supervisor_planning node parameterized by feature flags.
 
@@ -16,7 +26,8 @@ def create_supervisor_planning(use_rag: bool = True) -> Callable[[AgentState], D
         A supervisor_planning function compatible with LangGraph.
     """
     def supervisor_planning(state: AgentState) -> Dict[str, List[str]]:
-        print("--- 🧠 NODE: SUPERVISOR (PLANNING) ---")
+        """Produce the initial execution plan for the pipeline."""
+        logger.info("--- NODE: SUPERVISOR (PLANNING) ---")
         if use_rag:
             initial_plan = ["scribe", "mathematician", "clinical_rag"]
         else:
@@ -59,11 +70,14 @@ def create_supervisor_router(use_rag: bool = True) -> Callable[[AgentState], str
 
         # 2. Validation Retry Logic
         if errors and attempts < 3:
-            logging.warning(f"⚠️ Validation errors detected: {len(errors)}. Retrying Scribe (Attempt {attempts+1}).")
+            logger.warning(
+                "Validation errors detected: %d. Retrying Scribe (attempt %d).",
+                len(errors), attempts + 1,
+            )
             return "scribe"
 
         if not extracted and attempts >= 3:
-            logging.error("❌ Max attempts reached for extraction. Giving up.")
+            logger.error("Max attempts reached for extraction. Giving up.")
             return "end"
 
         # 3. Calculation Phase

@@ -1,7 +1,10 @@
-import os
+"""Singleton accessor for the ChromaDB vector store."""
+
 import logging
-from langchain_chroma import Chroma
+import os
+
 from dotenv import load_dotenv
+from langchain_chroma import Chroma
 
 load_dotenv()
 

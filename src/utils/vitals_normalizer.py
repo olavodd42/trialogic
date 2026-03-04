@@ -1,3 +1,5 @@
+"""Utilities for normalising raw vital-sign values."""
+
 import re
 from typing import Optional, Union
 

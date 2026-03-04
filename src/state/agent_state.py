@@ -1,7 +1,9 @@
+"""Typed dictionary defining the shared state passed between LangGraph nodes."""
 
-from typing import List, Any, TypedDict, Optional
-from src.schemas.scribe_schema import ClinicalSchema
+from typing import Any, List, Optional, TypedDict
+
 from src.schemas.input_schema import InputSchema
+from src.schemas.scribe_schema import ClinicalSchema
 
 
 class AgentState(TypedDict, total=False):

@@ -1,7 +1,16 @@
-from typing import List, Optional, Literal, Dict, Tuple
-from pydantic import BaseModel, Field, model_validator, PrivateAttr
+"""Pydantic schemas for the Scribe agent extraction pipeline.
+
+Defines the raw LLM output model (`RawScribeOutput`) and the validated
+domain model (`ClinicalSchema`, `VitalsSchema`).  Includes heuristic
+recovery validators that parse labelled or unlabelled vital-sign spans
+and enforce clinical plausibility constraints.
+"""
+
 import logging
 import re
+from typing import Dict, List, Literal, Optional, Tuple
+
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -40,20 +49,22 @@ VITAL_LABEL_PATTERNS = [
 ]
 
 def is_physical_exam(span: str) -> bool:
+    """Return True if *span* looks like a physical-exam section rather than vitals."""
     if not span:
         return False
 
     span_upper = span.upper()
 
-    # 1️⃣ Se contém termos clássicos de exame físico
+    # 1. Contains classic physical-exam terms
     if any(re.search(p, span_upper) for p in PHYSICAL_EXAM_PATTERNS):
-        # 2️⃣ …e NÃO contém nenhum rótulo de sinal vital
+        # 2. ...and does NOT contain any vital-sign label
         if not any(re.search(p, span_upper) for p in VITAL_LABEL_PATTERNS):
             return True
 
     return False
 
 def looks_like_sequence(span: str) -> bool:
+    """Return True if *span* contains four or more numeric tokens (likely an unlabelled vital sequence)."""
     if not span:
         return False
     nums = re.findall(r'\d+(?:\.\d+)?', span)
@@ -75,7 +86,10 @@ class VitalsSchema(BaseModel):
     supplemental_oxygen: bool = Field(default=False)
 
 class ClinicalSchema(BaseModel):
-    chief_complaint: str = Field(..., description="Main reason for admission (brief)")
+    chief_complaint: str = Field(
+        ...,
+        description="Main reason for admission (brief)"
+    )
     vitals: VitalsSchema
 
 class RawScribeOutput(BaseModel):
@@ -99,16 +113,43 @@ class RawScribeOutput(BaseModel):
         description="LABELED, UNLABELED_SEQUENCE, MIXED, NOT_FOUND"
     )
 
-    heartrate: Optional[int] = Field(None, description="Heart Rate (BPM)")
-    resprate: Optional[int] = Field(None, description="Respiratory Rate (breaths/min)")
-    temperature: Optional[float] = Field(None, description="Temperature (F or C)")
-    o2sat: Optional[int] = Field(None, description="Oxygen Saturation (%).")
-    sbp: Optional[int] = Field(None, description="Systolic BP")
-    dbp: Optional[int] = Field(None, description="Diastolic BP")
+    heartrate: Optional[int] = Field(
+        None,
+        description="Heart Rate (BPM)"
+    )
+    resprate: Optional[int] = Field(
+        None,
+        description="Respiratory Rate (breaths/min)"
+    )
+    temperature: Optional[float] = Field(
+        None,
+        description="Temperature (F or C)"
+    )
+    o2sat: Optional[int] = Field(
+        None,
+        description="Oxygen Saturation (%)."
+    )
+    sbp: Optional[int] = Field(
+        None,
+        description="Systolic BP"
+    )
+    dbp: Optional[int] = Field(
+        None,
+        description="Diastolic BP"
+    )
     
-    supplemental_oxygen: bool = Field(False, description="True if 'NC','mask','L/min' etc.")
-    acvpu: TypeACVPU = Field("Alert", description="Mental status: Alert, Confusion, Voice, Pain, Unresponsive")
-    gcs: Optional[int] = Field(None, description="Glasgow Coma Scale")
+    supplemental_oxygen: bool = Field(
+        False,
+        description="True if 'NC','mask','L/min' etc."
+    )
+    acvpu: TypeACVPU = Field(
+        "Alert",
+        description="Mental status: Alert, Confusion, Voice, Pain, Unresponsive"
+    )
+    gcs: Optional[int] = Field(
+        None,
+        description="Glasgow Coma Scale"
+    )
     _used_numeric_values: set[float] = PrivateAttr(default_factory=set)
     _assigned_indices: set[int] = PrivateAttr(default_factory=set)
 
@@ -150,7 +191,6 @@ class RawScribeOutput(BaseModel):
             'heartrate': [r'(?i)\bHR\b', r'(?i)\bHEART RATE\b', r'(?i)\bPULSE\b', r'(?i)\bP[:\s]'],
             'resprate': [r'(?i)\bRR\b', r'(?i)\bRESP\b', r'(?i)\bR[:\s]'],
             'o2sat': [r'(?i)\bSPO2\b', r'(?i)\bSAO2\b', r'(?i)\bO2SAT\b', r'(?i)\bO2\b', r'(?i)\bSAT\b'],
-            # BP handled separately via / regex
         }
 
     def _bind_label_to_nearest_number(self, span: str, max_distance_chars: int = 30) -> None:
@@ -322,7 +362,9 @@ class RawScribeOutput(BaseModel):
         if self.vital_section_span and is_physical_exam(self.vital_section_span):
             logger.warning("Physical exam detected. Rejecting span.")
             self.vital_section_span = None
-            for v in (self.heartrate, self.resprate, self.temperature, self.sbp, self.o2sat):
+            for v in (
+                self.heartrate, self.resprate, self.temperature, self.sbp, self.o2sat
+            ):
                 v = None
 
             self.span_format = 'NOT_FOUND'
@@ -359,7 +401,11 @@ class RawScribeOutput(BaseModel):
             except Exception:
                 logger.debug("BP parse failed in recover_labeled_and_sequence", exc_info=True)
 
-        o2_match = re.search(r'(?i)\b(?:saO2|sao2|spo2|o2sat|o2|sat)\b[:=]?\s*(\d{1,3})(?:\s*%|/ra|/RA)?', span)
+        o2_match = re.search(
+            r'(?i)\b(?:saO2|sao2|spo2|o2sat|o2|sat)\b[:=]?\s*(\d{1,3})(?:\s*%|/ra|/RA)?',
+            span
+        )
+
         if not o2_match:
             o2_match = re.search(r'(\d{1,3})\s*(?:%|/ra|RA\b)', span, re.I)
 
@@ -370,11 +416,6 @@ class RawScribeOutput(BaseModel):
                     o2_val = int(o2_match.group(1))
                     if 0 <= o2_val <= 100:
                         self.o2sat = o2_val
-                # if 0 <= o2_val <= 100:
-                #     self.o2sat = o2_val
-                #     for m in re.finditer(re.escape(o2_match.group(0)), span, re.IGNORECASE):
-                #         for i in range(m.start(), m.end()):
-                #             self._assigned_indices.add(i)
 
             except Exception:
                 pass
@@ -395,7 +436,7 @@ class RawScribeOutput(BaseModel):
             _remove_first(nums, float(self.o2sat))
         
         self._bind_label_to_nearest_number(span, max_distance_chars=30)
-        # span_wo_bp = re.sub(r'\d{2,3}\s*[/-]\s*\d{2,3}', ' ', span)
+
         if not is_sequence:
             tokens = [float(t) for t in re.findall(r'\d+(?:\.\d+)?', span)]
 
@@ -409,7 +450,8 @@ class RawScribeOutput(BaseModel):
             if self.heartrate is not None:
                 _remove_first(tokens, float(self.heartrate))
 
-            if self.o2sat is None and ('%' in span_up or 'O2' in span_up or 'SAT' in span_up):
+            if self.o2sat is None and\
+                 ('%' in span_up or 'O2' in span_up or 'SAT' in span_up):
                 if nums:
                     candidate = nums.pop(0)
                     if 0 <= candidate <= 100:
@@ -473,7 +515,8 @@ class RawScribeOutput(BaseModel):
                         # if none found, resprate remains None
 
             # O2 positional fallback if not captured and span contains indicator
-            if self.o2sat is None and ('%' in span_up or 'O2' in span_up or 'SAT' in span_up or 'SPO2' in span_up):
+            if self.o2sat is None and\
+                 ('%' in span_up or 'O2' in span_up or 'SAT' in span_up or 'SPO2' in span_up):
                 if q:
                     cand = q.pop(0)
                     if 0 <= cand <= 100:
@@ -600,7 +643,11 @@ class RawScribeOutput(BaseModel):
                         # prefer HR
                         self.heartrate = hr_val
                         self.temperature = None
-                        logger.warning(f"AUTO-CORRECTION: Temperature {hr_val} appears to be HR. Cleared temperature; set HR={hr_val}.")
+                        logger.warning(
+                            "AUTO-CORRECTION: Temperature %s appears to be HR. "
+                            "Cleared temperature; set HR=%s.",
+                            hr_val, hr_val,
+                        )
                         
         if (self.heartrate is None) and span:
             m_hr_label = re.search(r'(?i)\b(?:HR|PULSE|P)[:\s=-]*?(\d{1,3})\b', span)
@@ -634,8 +681,9 @@ class RawScribeOutput(BaseModel):
 
     def to_domain(self) -> ClinicalSchema:
         """
-        Mapper Method: Converte o DTO plano para o modelo hierárquico rico.
-        Isso isola a 'sujeira' da extração da 'limpeza' do domínio.
+        Convert the flat DTO into the rich hierarchical domain model.
+
+        This isolates extraction 'noise' from the clean domain representation.
         """
         avpu = self._map_avpu(self.acvpu)
         return ClinicalSchema(

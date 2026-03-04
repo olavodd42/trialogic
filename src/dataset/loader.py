@@ -1,11 +1,17 @@
+"""Dataset loading utilities for MIMIC-IV discharge notes."""
+
+import logging
 import os
+
 import pandas as pd
 import polars as pl
-import logging
 
 logger = logging.getLogger(__name__)
 
-def load_discharge_dataset(file_path: str | None = None, n: int | None = None) -> pl.DataFrame:
+def load_discharge_dataset(
+        file_path: str | None = None,
+        n: int | None = None
+    ) -> pl.DataFrame:
     """
     Loads the discharge dataset from a CSV file into a Polars DataFrame.
     This function attempts to load data from a specified CSV file. If no file path is provided,
@@ -44,24 +50,19 @@ def load_discharge_dataset(file_path: str | None = None, n: int | None = None) -
         file_path = os.path.join(project_root, "data", "discharge.csv")
 
     if not os.path.exists(file_path):
-        logger.error(f"❌File not found: {file_path}")
+        logger.error("File not found: %s", file_path)
         raise FileNotFoundError(f"File not found {file_path}")
 
-    logger.debug(f"Loading dataset from: {file_path}...")
+    logger.debug("Loading dataset from: %s ...", file_path)
     
     try:
-        # Polars é otimizado para leitura rápida de arquivos grandes
+        # Polars is optimised for fast reading of large files
         if n is not None:
             df = pl.read_csv(file_path, n_rows=n)
         else:
             df = pl.read_csv(file_path)
-        logger.info(f"Dataset loaded succesfully! Dimensions: {df.shape}")
+        logger.info("Dataset loaded successfully! Dimensions: %s", df.shape)
         return df
     except Exception as e:
-        logger.error(f"❌Error loading the dataset: {e}")
+        logger.error("Error loading the dataset: %s", e)
         raise e
-
-## DEBUG
-# if __name__ == "__main__":
-#     df = load_discharge_dataset()
-#     print(df.head())
