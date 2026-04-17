@@ -340,7 +340,7 @@ def process_baseline_batch(df: pd.DataFrame, limit: Optional[int] = None, output
                     results_count += 1
                     consecutive_failures = 0  # Reset on success
                 else:
-                logger.warning("Failed to parse JSON for ID %s", row.get('subject_id'))
+                    logger.warning("Failed to parse JSON for ID %s", row.get('subject_id'))
                     result_entry = {
                         "hadm_id": row.get('hadm_id'),
                         "error": "JSON_PARSE_ERROR",

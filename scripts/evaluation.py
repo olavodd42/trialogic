@@ -985,7 +985,7 @@ def generate_comparison_charts(
         'Baseline (One-Shot)': 'B1 (One-Shot)',
         'No RAG': 'No RAG',
         'TriaLogic (Agents)': 'TriaLogic',
-        'TriaLogic (No Validator)': 'TriaLogic (NV)',
+        'TriaLogic (No Validator)': 'TriaLogic (TNV)',
         'TriaLogic (Probabilistic)': 'TriaLogic (Prob)',
     }
     src = source_df.copy()
@@ -994,7 +994,7 @@ def generate_comparison_charts(
     # Fixed system order (simplest to most complete)
     sys_order = [
         'B0 (Zero-Shot)', 'B1 (One-Shot)', 'No RAG',
-        'TriaLogic (NV)', 'TriaLogic (Prob)', 'TriaLogic',
+        'TriaLogic (TNV)', 'TriaLogic (Prob)', 'TriaLogic',
     ]
     present_order = [s for s in sys_order if s in src['System_Short'].unique()]
     palette = sns.color_palette("colorblind", n_colors=len(present_order))
@@ -1051,7 +1051,8 @@ def generate_comparison_charts(
     agg_df = pd.DataFrame(agg_rows)
     # Keep fixed order
     agg_df['System'] = pd.Categorical(agg_df['System'], categories=present_order, ordered=True)
-    agg_df = agg_df.sort_values('System').reset_index(drop=True)
+    agg_df = agg_df.dropna(subset=['System']).sort_values('System').reset_index(drop=True)
+    agg_df['System'] = agg_df['System'].astype(str)
 
     if not agg_df.empty:
         fig3, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=False)
@@ -1107,8 +1108,8 @@ if __name__ == "__main__":
     BASE_DIR = os.getcwd()
     GT_PATH = os.path.join(BASE_DIR, "data", "ground_truth.csv")
     EXPERIMENTS = {
-        "Baseline (Zero-Shot)": os.path.join(BASE_DIR, "results", "baseline_results.jsonl"),
-        "Baseline (One-Shot)": os.path.join(BASE_DIR, "results", "oneshot_baseline_results.jsonl"),
+        "Baseline (Zero-Shot)": os.path.join(BASE_DIR, "results", "baseline_b0.jsonl"),
+        "Baseline (One-Shot)": os.path.join(BASE_DIR, "results", "baseline_b1.jsonl"),
         "No RAG": os.path.join(BASE_DIR, "results", "norag_experiment_results_v1.jsonl"),
         "TriaLogic (Agents)": os.path.join(BASE_DIR, "results", "experiment_results_v1.jsonl"),
         "TriaLogic (No Validator)": os.path.join(BASE_DIR, "results", "novalidation_experiment_results_v1.jsonl"),
