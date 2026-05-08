@@ -58,7 +58,7 @@ def create_workflow(
         use_validator, use_rag, use_probabilistic,
     )
     llm = ChatOllama(
-        model="llama3.1",
+        model="llama3.1:8b",
         temperature=0,
         seed=42,
         num_ctx=8192,
